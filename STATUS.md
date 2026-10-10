@@ -13,6 +13,7 @@
 - git: `main`, no remote.
 
 ## Scope and decisions
+- 2026-10-10, owner instruction: scope is M0 to M4 (was M0 to M2). The 6 hour limit is a per-run checkpoint, not a stop rule. At each checkpoint: commit, write the exact resume point here, continue. Never stop to ask: add owner needs to Blockers and carry on. Stop only when every remaining task is blocked on the owner. Search, Nix-supplied browser and Actions workflow stay in scope. Recorded in `BRIEF.md` section 0 (own commit).
 - Pin Playwright to 1.63.0 to match the cached browser. The Nix flake must supply the browser later.
 - M0 gate result (details in `docs/source-matrix.md`): no source is both proven and permitted for current-season data today.
   - Football-Data.co.uk has the best data (95 matches, shots, cards, xG-like columns) but its page says private individuals only, no automated or commercial use. Rejected. Sample stays local and git-ignored. Owner may overrule by contacting the site.

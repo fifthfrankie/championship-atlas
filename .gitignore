@@ -1,3 +1,11 @@
 .env
 data/samples/fduk_*
 data/samples/tsdb_*
+build/
+node_modules/
+__pycache__/
+*.building
+data/samples/apif_*
+data/snapshots/*
+!data/snapshots/README.md
+.DS_Store

@@ -1,6 +1,6 @@
 # Source matrix (M0 data feasibility gate)
 
-Verified 2026-10-10 (BST). Discovery requests used: 23 of 40 (see `discovery-requests.md`).
+Verified 2026-10-10 (BST). Discovery requests used: 23 of 40 on docs and keyless sources, plus keyed probes: football-data.org 5 calls (1 failed with an unquoted-key bug of mine), API-Football 4 calls (see `discovery-requests.md`).
 Current season resolved from the source: **2026-27** (Football-Data.co.uk file `2627/E1.csv` holds matches to 20/09/2026; Wikipedia page `2026-27 EFL Championship`; TheSportsDB season `2026-2027`).
 
 Legend: Supported = verified data and permitted route. Partial = usable with documented gaps. Unavailable = no verified permitted $0 route. Blocked = needs an owner action.
@@ -11,24 +11,25 @@ Legend: Supported = verified data and permitted route. Partial = usable with doc
 |---|---|---|---|---|---|
 | Football-Data.co.uk | Yes. `data/samples/fduk_E1_2627.csv`: 95 matches to 20/09/2026, results, half-time, shots, cards, referee, `HxG`/`AxG` (provider and model not documented) | No (team level only, per notes.txt) | None | **No.** data.php says use is for private individuals, no commercial use, no automated bot/scraper/AI use, prediction purpose only | **Unavailable** for this project. Sample kept local, git-ignored |
 | TheSportsDB (free key) | Partly. `tsdb_events_2627.json` returns only 15 events of ~552; `tsdb_table_2627.json` returns only 5 of 24 rows | Not tested (lineups limit 5, team players 10 per docs) | Free key needs no payment; premium is $9 per month (rejected). 429 hard stop at 30 per minute | **Unverified.** `/terms` returned 502 three times | **Unavailable** (truncated) |
-| football-data.org | Not proven. Needs key (`FOOTBALL_DATA_ORG_KEY` empty). Coverage page lists Championship in the free tier | No. Lineups, scorers, bookings, squads are paid-tier only per pricing page | Free plan EUR 0, 10 calls per minute. Payment method at signup not stated on the pricing page; overage not mentioned. Must be checked at signup | **Unverified.** `/terms` is 404; no redistribution clause found | **Blocked** (key) for fixtures, results, standings only |
-| API-Football | Not proven. Key empty. Docs/pricing/terms return 403 to fetches (not bypassed) | Marketing says all endpoints on free plan, 100 per day. Season access on free plan unproven | Card requirement unconfirmed (guide says none). Terms forbid resale and multiple free accounts | **Unverified.** Terms page unreadable | **Blocked** (key) |
+| football-data.org | **Yes.** Real key works. `/competitions/ELC/matches` returned season 2026: 552 matches, 99 finished, 24 teams, 7 in play at fetch (snapshot `766a0d8d6e28`). Also `/standings` (24 rows), `/teams`, `/scorers` | **Partial.** Squads (name, position, DOB, nationality; 24 to 25 per team) and top 10 scorers (goals, played matches). No per-match lineups, minutes or appearances. Coach names may be stale (Blackburn shows Tony Mowbray) | Free plan EUR 0, 10 calls per minute, hard 429 stop. No payment asked in use (key was supplied by the owner; signup flow itself not observed) | **Unverified.** `/terms` is 404 and no redistribution clause could be found. Snapshots kept out of git until the owner confirms | **Supported for use locally; public display Blocked on terms** |
+| API-Football | **No.** `/fixtures?league=40&season=2026` returns `Free plans do not have access to this season, try from 2022 to 2024.` (`apif_fixtures_40_2026.json`) | **Historical only.** Season 2024: 557 fixtures; `/fixtures/players` returned 2 teams, 20 players for one match with minutes, position, rating, shots, passes etc. (`apif_fixture_players_sample.json`) | Free plan, 100 requests per day, hard stop, no payment used. Status shows plan end date 2026-10-30 (renewal behaviour to confirm) | **Unverified.** Terms 403 to fetch. Responses kept out of git | **Unavailable for the current season. Partial for 2022 to 2024 history** (about 1 request per fixture, so roughly 6 days of quota per season) |
 | Wikipedia (CC BY-SA 4.0, MediaWiki API) | Page exists and was edited today (`wiki_2026_27_wikitext.json`, rev 1379497321) | No appearances. Top scorers table only | None | Licence permits reuse with attribution and share-alike. Share-alike would bind derived content | **Unavailable** as a data source: table and results come from Lua modules, not in wikitext, so no parseable fixtures. Useful only for points-deduction notes |
 
 ## Product features
 
-| Feature | Class | Reason |
+| Feature | Class | Route and gaps |
 |---|---|---|
-| Fixtures and results | Blocked | Only permitted route is football-data.org free tier, needs owner key |
-| Standings (with adjustments) | Blocked | Same; can be derived from results plus manual adjustments recorded with citation |
-| Teams | Blocked | Same |
-| Match detail (shots, cards, xG) | Unavailable | Only Football-Data.co.uk has it and its terms forbid this use |
-| Player pages, appearances, history | Unavailable | No verified permitted $0 route. football-data.org free tier excludes it; API-Football unproven |
-| Club change report | Blocked | Needs results; uses points, GF, GA only |
-| Advanced metrics (xG, passing, shot maps) | Unavailable | No permitted source with provider and definition |
+| Fixtures and results, current season | Supported locally | football-data.org. Public display awaits terms confirmation |
+| Standings with adjustments | Supported locally | Derived from results by `atlas/standings.py`, reconciled against `/standings` snapshot; deductions need a cited adjustment |
+| Teams | Supported locally | football-data.org |
+| Match detail beyond score and half-time | Unavailable | No goals, cards or lineups in the free matches response |
+| Player pages, current season | Partial | Squad bio and top 10 scorers only. No appearances, minutes or per-match contribution |
+| Player appearances and history | Partial, 2022 to 2024 only | API-Football, request-hungry, terms unverified |
+| Club change report | Supported locally | Points, goals for and against from results (latest 5 vs previous 5) |
+| Advanced metrics (xG, passing, shot maps) | Unavailable for current season | API-Football 2024 has shots and passes per player, but no current-season route and no xG model identified |
 
 ## Unknowns that need the owner
 
-1. Register a free football-data.org key (confirm no card is asked) and put it in `.env`.
-2. Read football-data.org terms in the account area and confirm storing and public display. Record result in this file.
-3. Optionally register an API-Football free key and run one `/fixtures` call for league 40, season 2026, to prove season access and appearances.
+1. Read football-data.org's terms in the account area. Confirm storing responses in a public repository and showing the data on a public site, and whether attribution is required. Record the verdict here.
+2. Read API-Football's terms for the same question.
+3. Note: the keys in `.env` are quoted (`KEY="..."`). The code strips quotes.

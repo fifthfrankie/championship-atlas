@@ -92,14 +92,15 @@ _NUM = re.compile(r"^\d+$")
 
 
 def parse_count(s):
-    """'4+2' -> (4, 2); '5' -> (5, None); '' -> (None, None). A blank is NULL, never zero."""
+    """'4+2' -> (4, 2, None); '5' -> (None, None, 5); '' -> (None, None, None). A blank is NULL, never zero.
+    A plain number is ONE figure as the editors wrote it. It is kept as `plain` and never read as starts or as a split."""
     s = s.strip()
     if not s:
-        return None, None
+        return None, None, None
     if "+" in s:
         a, _, b = s.partition("+")
-        return (int(a) if _NUM.match(a.strip()) else None), (int(b) if _NUM.match(b.strip()) else None)
-    return (int(s) if _NUM.match(s) else None), None
+        return (int(a) if _NUM.match(a.strip()) else None), (int(b) if _NUM.match(b.strip()) else None), None
+    return None, None, (int(s) if _NUM.match(s) else None)
 
 
 def _int(s):
@@ -175,8 +176,8 @@ def parse_club_season(body: bytes):
             raise ValueError(f"row for {shown!r} has more figures than the {len(comps)} competitions")
         per = []
         for c in range(len(comps)):
-            starts, subs = parse_count(vals[2 * c])
-            per.append(dict(competition=comps[c], starts=starts, subs=subs, goals=_int(vals[2 * c + 1]),
+            starts, subs, plain = parse_count(vals[2 * c])
+            per.append(dict(competition=comps[c], starts=starts, subs=subs, plain=plain, goals=_int(vals[2 * c + 1]),
                             apps_raw=vals[2 * c].strip(), goals_raw=vals[2 * c + 1].strip()))
         rows.append(dict(player_title=ptitle, name=shown, loaned_in="''" in name_wt, shirt=_int(_wt(pr, "no")),
                          pos=_wt(pr, "pos").strip() or None, nat=_wt(pr, "nat").strip() or None, competitions=per))
@@ -185,13 +186,11 @@ def parse_club_season(body: bytes):
 
 
 def total_apps(c):
-    """Appearances in one competition: starts plus substitute appearances, or a plain number as written.
-    None when the cell was blank. The figure is as Wikipedia editors wrote it."""
-    if c["apps_raw"] == "":
-        return None
-    if c["subs"] is not None and c["starts"] is not None:
+    """Appearances in one competition: starts plus substitute appearances when the editors gave 'a+b', otherwise the
+    single figure they wrote (taken as total appearances, and disclosed as such on the page). None when blank."""
+    if c["starts"] is not None and c["subs"] is not None:
         return c["starts"] + c["subs"]
-    return c["starts"]
+    return c.get("plain")
 
 
 def parse_overview(body: bytes):

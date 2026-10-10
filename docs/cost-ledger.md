@@ -26,7 +26,7 @@ Signup for football-data.org and API-Football was done by the owner before this 
 |---|---|---|---|---|
 | Wikipedia article pages (`/wiki/<title>`), free, no account | No hard read limit is stated (mediawiki.org API:Etiquette); it asks for serial requests and a descriptive User-Agent. `robots.txt` allows `/wiki/<article>` only | Measured: 25 requests per refresh (1 league page, 24 club pages), about 2.0 MB compressed. Weekly, so about 104 MB a year of snapshots | `wiki.MAX_REQUESTS_PER_RUN = 30`, `wiki.MIN_INTERVAL_S = 2`, 7 day skip (`wiki.MAX_AGE_DAYS`), switch `ATLAS_WIKI=0`; all in `atlas/wiki.py` and `atlas/cli.py`, run through `_Run` | 2026-10-10 |
 
-Retention: snapshots stay git-ignored and live in the Actions cache. Replay uses only the latest good copy of each Wikipedia page, so older Wikipedia snapshots can be deleted without changing the database. Ceiling for the snapshot folder: 200 MB, about two years at this rate. Revisit then.
+Retention: snapshots stay git-ignored and live in the Actions cache. Replay uses only the newest readable copy of each Wikipedia page for the current season, so older Wikipedia snapshots can be deleted without changing the database. Ceiling for the snapshot folder: 200 MB, about two years at this rate. Revisit then.
 
 ## Candidates not in use
 

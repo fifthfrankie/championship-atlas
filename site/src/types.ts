@@ -19,7 +19,7 @@ export interface Meeting { season: string; kickoff: string | null; home: number;
 export interface HistoryRow { season: string; position: number; points: number; played: number; gd: number; adjustment: number }
 export interface Scorer { rank: number; played: number | null; goals: number | null; assists: number | null; penalties: number | null; fetched_at: string; snapshot: string }
 export interface Player { id: number; name: string; dob: string | null; nationality: string | null; position: string | null; team: number; seen: string | null; scorer: Scorer | null; url_id: string; wiki?: PlayerWiki }
-export interface WikiComp { competition: string; apps: number | null; starts: number | null; subs: number | null; goals: number | null }
+export interface WikiComp { competition: string; apps: number | null; starts: number | null; subs: number | null; split: boolean; goals: number | null; blank: boolean }
 export interface WikiRow { row_no: number; team: number; name: string; shirt: number | null; pos: string | null; nat: string | null; loaned_in: boolean; comps: WikiComp[]; apps_total: number | null; goals_total: number | null; player: string | null }
 export interface WikiPage {
   team: number; title: string; status: "ok" | "rejected"; reason: string | null; note: string | null; as_of: string | null; revision: number | null

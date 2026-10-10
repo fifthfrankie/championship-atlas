@@ -53,7 +53,8 @@ class Parse(unittest.TestCase):
         self.assertEqual((c["player_title"], c["name"]), (None, "Unlinked Player"))
         la = a["competitions"][0]
         self.assertEqual((la["starts"], la["subs"], la["goals"], wiki.total_apps(la)), (4, 2, 1, 6))
-        self.assertEqual((c["competitions"][0]["starts"], c["competitions"][0]["subs"], wiki.total_apps(c["competitions"][0])), (8, None, 8))
+        c0 = c["competitions"][0]
+        self.assertEqual((c0["starts"], c0["subs"], c0["plain"], wiki.total_apps(c0)), (None, None, 8, 8))   # one figure: never read as starts
         self.assertIsNone(c["competitions"][1]["goals"])                                  # blank is NULL
         self.assertIsNone(wiki.total_apps(c["competitions"][1]))
         self.assertEqual(wiki.total_apps(a["competitions"][1]), 0)                         # '0+0' is a real zero, distinct from blank
@@ -287,6 +288,95 @@ class Replay(Base):
         replay.build(other / "a.db", snaps, self.none, self.clubs, self.nat)
         d2 = export.export(other / "a.db")
         self.assertEqual((d2["wiki"]["pages"], d2["wiki"]["clubs"]), ([], {}))
+
+
+class ReviewFixes(Replay):
+    def test_urls_use_football_data_ids_even_when_linked_to_a_wikipedia_article(self):
+        import re
+        self.basics()
+        self.page("Club One F.C.", [row("[[Sam Smith (footballer, born 2003)|Sam Smith]]", pos="MF", nat="ENG", league="2+0"),
+                                    row("[[Ali \u00c1lvarez (English footballer)|Tom Jones]]", pos="DF", nat="WAL", league="1+0")])
+        self.build_()
+        d = export.export(self.d / "a.db")
+        linked = [p for p in d["players"] if p.get("wiki")]
+        self.assertEqual(len(linked), 2)
+        for p in d["players"] + d["matches"]:
+            self.assertRegex(str(p["url_id"]), r"^\d+$")                                   # never an article title
+        self.assertEqual(d["validation"]["errors"].count("x"), 0)
+        db = sqlite3.connect(self.d / "a.db")
+        self.assertEqual(db.execute("select count(*) from source_id where source='wikipedia'").fetchone()[0], 0)
+
+    def test_plain_numbers_are_kept_as_one_figure_and_totals_need_every_cell(self):
+        self.basics()
+        self.page("Club One F.C.", [row("Sam Smith", league="2", lgoals="1", fa="", fag="0", efl="0+0", eflg="0")])
+        db = self.build_()
+        self.assertEqual(db.execute("select starts, subs, apps_plain from wiki_appearance where col=0").fetchone(), (None, None, 2))
+        d = export.export(self.d / "a.db")
+        smith = next(p for p in d["players"] if p["name"] == "Sam Smith")["wiki"]
+        lg = smith["comps"][0]
+        self.assertEqual((lg["apps"], lg["split"]), (2, False))                               # total as written, and no split claimed
+        self.assertIsNone(smith["apps_total"])                                                # the FA Cup cell is blank, so no total
+        self.assertEqual(smith["goals_total"], 1)                                             # every goals cell has a figure, so this total is sound
+
+    def test_a_player_is_linked_from_one_row_only(self):
+        self.basics(squad={1: [(10, "Sam Smith", "Midfield", "England")], 2: [(10, "Sam Smith", "Midfield", "England")]})
+        self.page("Club One F.C.", [row("Sam Smith", league="2+0")])
+        self.page("Club Two F.C.", [row("Sam Smith", league="1+0")])
+        db = self.build_()
+        self.assertEqual(db.execute("select count(*), count(distinct player_id) from wiki_link").fetchone(), (1, 1))
+
+    def test_newer_unreadable_copy_does_not_erase_an_older_good_one(self):
+        self.basics()
+        self.page("Club One F.C.", [row("Sam Smith", league="2+0")], at="2026-10-02T00:00:00Z", revision=1)
+        self.save("wiki-club", "2026\u201327 Club One F.C. season", b'<html><head><script>RLCONF={"wgPageName":"x","wgRevisionId":2};</script></head><body>layout changed</body></html>', "2026-10-09T00:00:00Z")
+        db = self.build_()
+        self.assertEqual(db.execute("select status, revision_id from wiki_page").fetchone(), ("ok", 1))
+        self.assertEqual([k for k, *_ in db.execute("select * from wiki_issue")], ["older_copy_used"])
+
+    def test_earlier_season_pages_are_ignored_and_raise_no_warnings(self):
+        self.basics()
+        self.save("wiki-club", "2025\u201326 Club Relegated F.C. season", club_html("2025\u201326 Club Relegated F.C. season", [row("A B")]), "2026-05-01T00:00:00Z")
+        self.page("Club One F.C.", [row("Sam Smith", league="2+0")])
+        db = self.build_()
+        self.assertEqual(db.execute("select count(*) from wiki_issue").fetchone()[0], 0)
+        self.assertEqual(db.execute("select count(*) from wiki_page").fetchone()[0], 1)
+
+
+class IngestRetry(Ingest):
+    def test_partial_failure_is_retried_next_run_but_a_complete_one_earns_the_week(self):
+        del self.pages["2026\u201327 Club 2 F.C. season"]                       # one club page fails
+        self.assertEqual(self.run_(datetime(2026, 10, 10, tzinfo=timezone.utc)), 1)
+        self.pages["2026\u201327 Club 2 F.C. season"] = club_html("2026\u201327 Club 2 F.C. season", [row("[[A B]]")])
+        self.calls.clear()
+        self.run_(datetime(2026, 10, 10, 6, tzinfo=timezone.utc))                # six hours later, one day is not a week
+        self.assertEqual(len(self.calls), 5)                                      # retried: the earlier run was incomplete
+        self.calls.clear()
+        self.run_(datetime(2026, 10, 11, tzinfo=timezone.utc))
+        self.assertEqual(self.calls, [])                                          # complete now, so the week is earned
+
+    def test_total_failure_backs_off_for_six_hours_instead_of_every_run(self):
+        self.pages.clear()
+        self.run_(datetime(2026, 10, 10, 0, tzinfo=timezone.utc))                # overview 404
+        n = len(self.calls)
+        self.run_(datetime(2026, 10, 10, 3, tzinfo=timezone.utc))
+        self.assertEqual(len(self.calls), n)                                      # inside the back-off
+        self.run_(datetime(2026, 10, 10, 7, tzinfo=timezone.utc))
+        self.assertGreater(len(self.calls), n)                                    # after it, try again
+
+    def test_unreadable_league_page_returns_a_failure_not_a_crash_and_ingest_survives_a_wiki_error(self):
+        self.pages["2026\u201327 EFL Championship"] = b"<html><head><script>RLCONF={\"wgPageName\":\"x\",\"wgRevisionId\":1};</script></head><body>changed</body></html>"
+        self.assertEqual(self.run_(datetime(2026, 10, 10, tzinfo=timezone.utc)), 1)
+        self.assertEqual(len(self.calls), 1)                                      # nothing further fetched
+        import contextlib, io
+        (self.d / ".env").write_text('FOOTBALL_DATA_ORG_KEY="abc"\n')
+        orig = cli.wiki_ingest
+        cli.wiki_ingest = lambda **kw: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                cli.ingest(fetch=lambda p, q, t: (200, json.dumps({"filters": {"season": "2026"}}).encode()), sleep=lambda s: None)
+        finally:
+            cli.wiki_ingest = orig
+        self.assertIn("refresh failed", out.getvalue())
 
 
 if __name__ == "__main__":

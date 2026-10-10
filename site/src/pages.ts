@@ -192,7 +192,7 @@ ${changeSection(c, t)}
 ${wikiClubSection(c, t)}
 ${historySection(c, t)}
 <section aria-labelledby="sq"><h2 id="sq">Squad</h2>
-${squad.length ? `<p class="muted">Squad list as last seen ${stamp(squad[0]!.seen ?? d.built_at)}. Provider squad lists can lag real transfers, and shirt numbers and appearances are not available.</p>
+${squad.length ? `<p class="muted">Squad list as last seen ${stamp(squad[0]!.seen ?? d.built_at)}. Provider squad lists can lag real transfers. Shirt numbers come from the appearances table above where a club has one.</p>
 <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(t.name)} squad</caption><thead><tr><th scope="col" class="left">Player</th><th scope="col" class="left">Position</th><th scope="col" class="left">Nationality</th><th scope="col" class="left">Born</th></tr></thead>
 <tbody>${groups.map((x) => pl(x.ps)).join("")}${pl(other)}</tbody></table></div>` : notice("info", "No squad list in the saved data for this club.")}
 ${evidence(c, { what: "Squad list as provided.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], fetched: lastOf(c, "teams")?.fetched_at })}</section>`
@@ -205,7 +205,7 @@ export function playersIndex(c: Ctx): string {
   const teams = [...d.teams].sort((a, b) => a.name.localeCompare(b.name))
   const pos = [...new Set(d.players.map((p) => p.position).filter(Boolean))].sort()
   const rows = d.players.map((p) => `<tr data-team="${c.team(p.team).slug}" data-pos="${esc(p.position ?? "")}" data-name="${esc(p.name.toLowerCase())}">
-<th scope="row" data-sort="${esc(p.name)}"><a href="${c.href(`player/${p.url_id}/`)}">${esc(p.name)}</a></th><td>${c.teamLink(p.team)}</td><td>${esc(p.position ?? "Not supplied")}</td><td>${esc(p.nationality ?? "Not supplied")}</td><td data-sort="${p.dob ?? ""}">${p.dob ?? "Not supplied"}</td><td data-sort="${lg(p)?.apps ?? -1}">${p.wiki ? cell(lg(p)?.apps ?? null) : "Not listed"}</td><td data-sort="${lg(p)?.goals ?? -1}">${p.wiki ? cell(lg(p)?.goals ?? null) : "Not listed"}</td></tr>`).join("")
+<th scope="row" data-sort="${esc(p.name)}"><a href="${c.href(`player/${p.url_id}/`)}">${esc(p.name)}</a></th><td>${c.teamLink(p.team)}</td><td>${esc(p.position ?? "Not supplied")}</td><td>${esc(p.nationality ?? "Not supplied")}</td><td data-sort="${p.dob ?? ""}">${p.dob ?? "Not supplied"}</td><td data-sort="${lg(p)?.apps ?? -1}">${p.wiki ? cell(lg(p)?.apps ?? null) : "Not listed"}</td><td data-sort="${lg(p)?.goals ?? -1}">${p.wiki ? cell(lg(p)?.goals ?? null) : "Not listed"}</td><td class="left">${p.wiki?.as_of ? dayLong(p.wiki.as_of) : ""}</td></tr>`).join("")
   const th = (k: string, l: string, tip = "") => `<th scope="col" class="left" data-key="${k}"><button type="button" title="${esc(tip || l)}">${l}</button></th>`
   const body = `<h1>Players</h1>
 <p>${d.players.length} players in current squad lists. ${esc(d.coverage.players)}</p>
@@ -215,9 +215,10 @@ export function playersIndex(c: Ctx): string {
 <label>Position <select name="pos"><option value="">All</option>${pos.map((p) => `<option>${esc(p)}</option>`).join("")}</select></label>
 <output id="pcount" aria-live="polite"></output></form>
 <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table id="players" class="sortable" data-sortable><caption class="sr">Players. Press a column heading to sort.</caption>
-<thead><tr>${th("name", "Player")}${th("club", "Club")}${th("pos", "Position")}${th("nat", "Nationality")}${th("dob", "Born")}${th("lapps", "League apps", "League appearances from the club's Wikipedia table. Not listed means the player is not in a usable table, not zero.")}${th("lgoals", "League goals", "League goals from the same table")}</tr></thead>
+<thead><tr>${th("name", "Player")}${th("club", "Club")}${th("pos", "Position")}${th("nat", "Nationality")}${th("dob", "Born")}${th("lapps", "League apps", "League appearances from the club's Wikipedia table. Not listed means the player is not in a usable table, not zero.")}${th("lgoals", "League goals", "League goals from the same table")}<th scope="col" class="left">As of</th></tr></thead>
 <tbody>${rows}</tbody></table></div>
 <p id="pempty" class="notice info" hidden>No players fit those filters.</p>
+<p class="muted">League appearances and goals are adapted from each club's Wikipedia season page by Wikipedia contributors, licensed <a href="${esc(d.wiki.licence_url)}" rel="noopener">${esc(d.wiki.licence)}</a>. The as-of date is each club's own and differs between clubs; the club page gives the article and revision. Not listed means the player is not in a usable table, which is not a zero.</p>
 ${evidence(c, { what: "Squad lists as provided by football-data.org. League appearances and goals come from the clubs' Wikipedia tables (CC BY-SA 4.0, see each club page for the revision and as-of date).", snapshotIds: [lastOf(c, "teams")?.id ?? ""], fetched: lastOf(c, "teams")?.fetched_at })}`
   return page(c, { title: "Players", path: "players/", nav: "players", body })
 }
@@ -376,7 +377,10 @@ ${evidence(c, { what: "Every completed league match between these two clubs in t
 
 
 const leagueOf = (comps: { competition: string }[]) => comps.findIndex((c) => /championship/i.test(c.competition))
-const cell = (n: number | null) => (n === null ? '<abbr title="Left blank by the editors">-</abbr>' : String(n))
+const cell = (n: number | null) => (n === null ? '<span aria-hidden="true">-</span><span class="sr">left blank by the editors</span>' : String(n))
+/** League appearances cell: the figure, and for screen readers how it was written. Never claims a split the editors did not give. */
+const appsCell = (x: { apps: number | null; starts: number | null; subs: number | null; split: boolean } | undefined) =>
+  !x || x.apps === null ? cell(null) : x.split ? `${x.apps}<span class="sr">, ${x.starts} starts and ${x.subs} as a substitute</span>` : `${x.apps}<span class="sr">, one figure, no starts and substitute split given</span>`
 
 /** Wikipedia reuse notice: source page and revision, the editors' as-of date, and the CC BY-SA 4.0 licence. */
 function wikiAttribution(c: Ctx, pg: WikiPage): string {
@@ -394,9 +398,9 @@ function wikiClubSection(c: Ctx, t: Team): string {
   const league = (r: WikiRow) => r.comps[lg]
   const body = rows.map((r) => {
     const l = league(r)
-    const name = r.player ? `<a href="${c.href(`player/${r.player}/`)}">${esc(r.name)}</a>` : `${esc(r.name)} <small class="muted" title="Not matched to a player in the squad list, so no player page">unmatched</small>`
+    const name = r.player ? `<a href="${c.href(`player/${r.player}/`)}">${esc(r.name)}</a>` : `${esc(r.name)} <small class="muted">unmatched</small>`
     return `<tr><td>${r.shirt ?? ""}</td><th scope="row" data-sort="${esc(r.name)}">${name}${r.loaned_in ? ' <small class="muted">(loaned in)</small>' : ""}</th><td>${esc(r.pos ?? "")}</td>
-<td data-sort="${l?.apps ?? -1}"><abbr title="${l?.starts ?? "?"} starts, ${l?.subs ?? "?"} as a substitute">${cell(l?.apps ?? null)}</abbr></td><td data-sort="${l?.goals ?? -1}">${cell(l?.goals ?? null)}</td>
+<td data-sort="${l?.apps ?? -1}">${appsCell(l)}</td><td data-sort="${l?.goals ?? -1}">${cell(l?.goals ?? null)}</td>
 <td data-sort="${r.apps_total ?? -1}">${cell(r.apps_total)}</td><td data-sort="${r.goals_total ?? -1}">${cell(r.goals_total)}</td></tr>`
   }).join("")
   const th = (k: string, l: string, tip: string, cls = "") => `<th scope="col" class="${cls}" data-key="${k}"><button type="button" title="${esc(tip)}">${l}</button></th>`
@@ -404,9 +408,9 @@ function wikiClubSection(c: Ctx, t: Team): string {
 <p>As of <strong>${pg.as_of ? dayLong(pg.as_of) : ""}</strong>, the date the Wikipedia editors last updated this table. Matches since then are not included.</p>
 ${pg.note ? notice("info", esc(pg.note)) : ""}
 <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="sortable" data-sortable><caption class="sr">${esc(t.name)} appearances and goals. Press a column heading to sort.</caption>
-<thead><tr><th scope="col">No.</th>${th("name", "Player", "Player", "left")}<th scope="col" class="left">Pos.</th>${th("lapps", "League apps", "League appearances: starts plus substitute appearances. Hover a figure for the split.")}${th("lgoals", "League goals", "League goals")}${th("apps", "All apps", "Appearances in all competitions listed")}${th("goals", "All goals", "Goals in all competitions listed")}</tr></thead>
+<thead><tr><th scope="col">No.</th>${th("name", "Player", "Player", "left")}<th scope="col" class="left">Pos.</th>${th("lapps", "League apps", "League appearances: starts plus substitute appearances where the editors gave both, otherwise their single figure.")}${th("lgoals", "League goals", "League goals")}${th("apps", "All apps", "Appearances in all competitions listed")}${th("goals", "All goals", "Goals in all competitions listed")}</tr></thead>
 <tbody>${body}</tbody></table></div>
-${notice("info", "Minutes, per-90 figures and shots are not available from this source, so none are shown. A player missing from the list has not appeared, or the editors have not listed them. That is not shown as a zero.")}
+${notice("info", "Minutes, per-90 figures and shots are not available from this source, so none are shown. A player missing from the list has not appeared, or the editors have not listed them. That is not shown as a zero. Apps are starts plus substitute appearances where the editors gave both; where they wrote a single number, that number is shown as the total and no split is claimed. A dash means the editors left the cell blank, and a total is only shown when every competition has a figure. Unmatched means the row could not be safely linked to a player in the squad list (club, identical full name and agreeing nationality or position are all needed), so it has no player page.")}
 ${wikiAttribution(c, pg)}
 ${evidence(c, { what: `${rows.length} listed players from the club's season page. ${pg.linked} are matched to players in the squad list by club, identical full name, and agreeing nationality or position.`, calc: "Checked against the match results: no player's league appearances may exceed the matches the club had played by the as-of date, and players' league goals may not exceed the club's goals.", snapshotIds: [pg.snapshot], fetched: pg.fetched_at })}</section>`
 }
@@ -416,11 +420,11 @@ function playerWiki(c: Ctx, p: Player): string {
   const w = p.wiki
   if (!w) return notice("info", `No appearance figures for ${esc(p.name)}. Either this club's Wikipedia table could not be used, the player is not listed in it, or the listing could not be matched safely to this player (club, identical full name, and agreeing nationality or position are all needed). Nothing is estimated.`)
   const pg = c.d.wiki.pages.find((x) => x.team === w.team)!
-  const rows = w.comps.map((x) => `<tr><th scope="row" class="left">${esc(x.competition)}</th><td>${cell(x.apps)}</td><td>${cell(x.starts)}</td><td>${cell(x.subs)}</td><td>${cell(x.goals)}</td></tr>`).join("")
+  const rows = w.comps.map((x) => `<tr><th scope="row" class="left">${esc(x.competition)}</th><td>${cell(x.apps)}</td><td>${x.split ? cell(x.starts) : x.apps === null ? cell(null) : "Not split"}</td><td>${x.split ? cell(x.subs) : x.apps === null ? cell(null) : "Not split"}</td><td>${cell(x.goals)}</td></tr>`).join("")
   return `<h3>Appearances and goals, as of ${w.as_of ? dayLong(w.as_of) : ""}</h3>
 <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(p.name)} appearances and goals by competition</caption><thead><tr><th scope="col" class="left">Competition</th><th scope="col">Apps</th><th scope="col">Starts</th><th scope="col">As sub</th><th scope="col">Goals</th></tr></thead>
 <tbody>${rows}<tr><th scope="row" class="left">All listed</th><td><strong>${cell(w.apps_total)}</strong></td><td></td><td></td><td><strong>${cell(w.goals_total)}</strong></td></tr></tbody></table></div>
 ${w.loaned_in ? notice("info", "Listed as loaned in to this club.") : ""}${w.note ? notice("info", esc(w.note)) : ""}
 ${wikiAttribution(c, pg)}
-${evidence(c, { what: "This player's row in the club's Wikipedia appearances table, matched to the squad list by club, identical full name, and agreeing nationality or position.", calc: "Apps are starts plus substitute appearances, or the single figure the editors wrote. No minutes are available.", snapshotIds: [w.snapshot], fetched: w.fetched_at })}`
+${evidence(c, { what: "This player's row in the club's Wikipedia appearances table, matched to the squad list by club, identical full name, and agreeing nationality or position.", calc: "Apps are starts plus substitute appearances where the editors gave both, otherwise the single figure they wrote, taken as total appearances. No minutes are available.", snapshotIds: [w.snapshot], fetched: w.fetched_at })}`
 }

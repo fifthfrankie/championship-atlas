@@ -113,7 +113,7 @@ test("Wikipedia appearance tables: shown with as-of date, licence and unmatched 
   const { Ctx } = await import("../src/util.ts")
   const P = await import("../src/pages.ts")
   const d = data()
-  const comps = [{ competition: "Championship", apps: 6, starts: 4, subs: 2, goals: 1 }, { competition: "FA Cup", apps: null, starts: null, subs: null, goals: null }]
+  const comps = [{ competition: "Championship", apps: 6, starts: 4, subs: 2, split: true, goals: 1, blank: false }, { competition: "FA Cup", apps: 3, starts: null, subs: null, split: false, goals: 0, blank: false }]
   d.players[0]!.wiki = { team: 1, as_of: "2026-09-19", revision: 4242, permalink: "https://en.wikipedia.org/w/index.php?title=X&oldid=4242", title: "2026\u201327 Team AAA season", snapshot: "b".repeat(64), fetched_at: "2026-10-10T11:00:00Z", note: null, shirt: 9, loaned_in: false, comps, apps_total: 6, goals_total: 1 }
   d.wiki.pages = [
     { team: 1, title: "2026\u201327 Team AAA season", status: "ok", reason: null, note: null, as_of: "2026-09-19", revision: 4242, fetched_at: "2026-10-10T11:00:00Z", snapshot: "b".repeat(64), competitions: ["Championship", "FA Cup"], permalink: "https://en.wikipedia.org/w/index.php?title=X&oldid=4242", rows: 2, linked: 1 },
@@ -128,6 +128,8 @@ test("Wikipedia appearance tables: shown with as-of date, licence and unmatched 
   assert.match(a, /As of <strong>19 September 2026<\/strong>/)                  // UK long date, not ISO
   assert.match(a, /CC BY-SA 4\.0/); assert.match(a, /revision 4242/)
   assert.match(a, /unmatched/); assert.match(a, /\(loaned in\)/)
+  assert.match(a, /one figure, no starts and substitute split given|4 starts and 2 as a substitute/)   // never a claimed split without one
+  assert.doesNotMatch(a, /<abbr title="[^"]*starts/)                                                          // not hover-only
   assert.match(a, /Minutes, per-90 figures and shots are not available/)
   assert.doesNotMatch(a, /Not listed|NaN|undefined/)
   const b = P.teamPage(c, d.teams[1]!)
@@ -137,8 +139,11 @@ test("Wikipedia appearance tables: shown with as-of date, licence and unmatched 
   const linked = P.playerPage(c, d.players[0]!)
   assert.match(linked, /Appearances and goals, as of 19 September 2026/); assert.match(linked, /CC BY-SA 4\.0/)
   assert.match(linked, /<td>6<\/td><td>4<\/td><td>2<\/td><td>1<\/td>/)         // apps, starts, subs, goals
+  assert.match(linked, /<td>3<\/td><td>Not split<\/td><td>Not split<\/td><td>0<\/td>/)   // a single figure is not given a split
   const idx = P.playersIndex(c)
   assert.match(idx, /Not listed/)                                                 // a player with no table row is "not listed", never 0
+  assert.match(idx, /Wikipedia contributors, licensed/)                           // attribution is visible on the index itself
+  assert.match(idx, /<th scope="col" class="left">As of<\/th>/)
   const status = P.statusPage(c)
   assert.match(status, /Not shown: A player is shown with 9 league appearances/)
   assert.match(status, /Wikipedia appearance tables/)

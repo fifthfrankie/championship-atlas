@@ -189,23 +189,36 @@ def _apply_wiki(db, root, pages, clubs_csv, nat_csv):
     nat = {}
     if nat_csv.exists():
         nat = {r["code"]: set(r["football_data_names"].split("|")) for r in csv.DictReader(nat_csv.open())}
-    # The latest good copy of each page wins. Pages arrive oldest first.
-    latest = {}
+    # Only the newest season is used. For each page the newest copy that can be READ wins: a later copy that arrives
+    # unreadable (a changed layout) does not erase an older good one, it adds a visible issue instead.
+    history = {}
     for e in pages:
-        latest[(e["endpoint"], e["params"])] = e
-    for (endpoint, title), e in latest.items():
+        history.setdefault((e["endpoint"], e["params"]), []).append(e)
+    newest = max((int(m.group(1)) for (_, t) in history for m in [re.match(r"^(\d{4})\u2013", t)] if m), default=None)
+    latest = {}
+    for key, es in history.items():
+        endpoint, title = key
+        yr = re.match(r"^(\d{4})\u2013", title)
+        if newest is not None and yr and int(yr.group(1)) != newest:
+            continue                       # an earlier season's page: not shown, and not a source of warnings
+        latest[key] = list(reversed(es))   # newest first
+    for (endpoint, title), es in latest.items():
         if endpoint != "wiki-overview":
             continue
-        try:
-            listed = set(wiki.parse_overview(snapshots.read(e, root))["clubs"])
-        except ValueError as ex:
-            issue("overview_unreadable", title, str(ex))
+        for k, e in enumerate(es):
+            try:
+                listed = set(wiki.parse_overview(snapshots.read(e, root))["clubs"])
+            except ValueError as ex:
+                issue("overview_unreadable", title, f"Copy fetched {e['fetched_at']}: {ex}")
+                continue
+            break
+        else:
             continue
         for c in sorted(listed - set(clubs)):
             issue("unmapped_club", c, "Listed on the league page but missing from data/wikipedia_clubs.csv")
         for c in sorted(set(clubs) - listed):
             issue("club_not_listed", c, "In data/wikipedia_clubs.csv but not on the league page")
-    for (endpoint, title), e in latest.items():
+    for (endpoint, title), es in latest.items():
         if endpoint != "wiki-club":
             continue
         m = re.match(r"^(\d{4})\u2013(\d{2}) (.+) season$", title)
@@ -222,20 +235,28 @@ def _apply_wiki(db, root, pages, clubs_csv, nat_csv):
             issue("unknown_season", title, f"No season {label} in the match data")
             continue
         sid = season[0]
-        try:
-            d = wiki.parse_club_season(snapshots.read(e, root))
-        except ValueError as ex:
+        d = e = err = None
+        for k, cand in enumerate(es):
+            try:
+                d, e = wiki.parse_club_season(snapshots.read(cand, root)), cand
+                if k:
+                    issue("older_copy_used", title, f"The newest copy ({es[0]['fetched_at']}) could not be read, so the copy from {cand['fetched_at']} is shown")
+                break
+            except ValueError as ex:
+                err = ex
+        if d is None:
+            e = es[0]
             db.execute("INSERT INTO wiki_page VALUES (?,?,?,?,?,?,?,?,?,?,?)", (sid, team, title, None, None, None, "rejected",
-                       f"This club's page uses a table format we cannot read ({ex})", None, e["id"], e["fetched_at"]))
+                       f"This club's page uses a table format we cannot read ({err})", None, e["id"], e["fetched_at"]))
             continue
         reason, note = _check_page(db, sid, team, d)
         db.execute("INSERT INTO wiki_page VALUES (?,?,?,?,?,?,?,?,?,?,?)", (sid, team, title, d["revision"], d["as_of"], json.dumps(d["competitions"]),
                    "rejected" if reason else "ok", reason, note, e["id"], e["fetched_at"]))
         for n, r in enumerate(d["rows"]):
             for col, c in enumerate(r["competitions"]):
-                db.execute("INSERT INTO wiki_appearance VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                db.execute("INSERT INTO wiki_appearance VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                            (sid, team, n, col, c["competition"], r["player_title"], r["name"], r["shirt"], r["pos"], r["nat"], int(r["loaned_in"]),
-                            c["starts"], c["subs"], c["goals"], c["apps_raw"], c["goals_raw"]))
+                            c["starts"], c["subs"], c["plain"], c["goals"], c["apps_raw"], c["goals_raw"]))
         if not reason:
             _link_wiki(db, sid, team, d, nat)
 
@@ -292,6 +313,6 @@ def _link_wiki(db, sid, team, d, nat):
         agrees = (r["nat"] in nat and nationality in nat[r["nat"]]) or (POSITION_GROUP.get(r["pos"]) == pos and pos is not None)
         if not agrees:
             continue
-        db.execute("INSERT OR IGNORE INTO wiki_link VALUES (?,?,?,?)", (sid, team, n, pid))
-        if r["player_title"]:
-            db.execute("INSERT OR IGNORE INTO source_id VALUES (?,?,?,?)", (wiki.SOURCE, "player", r["player_title"], pid))
+        if db.execute("SELECT 1 FROM wiki_link WHERE season_id=? AND player_id=?", (sid, pid)).fetchone():
+            continue          # a player is linked from at most one row; a second claim is ignored, not guessed
+        db.execute("INSERT INTO wiki_link VALUES (?,?,?,?)", (sid, team, n, pid))

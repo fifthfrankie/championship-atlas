@@ -1,7 +1,7 @@
 """Export everything the static site needs as one JSON document. All derived numbers are computed here, once."""
 import json, re, sqlite3
 from datetime import datetime, timezone
-from . import replay, validate, wiki
+from . import fdorg, replay, validate, wiki
 
 LIVE = {"IN_PLAY", "PAUSED"}
 PENDING = {"SCHEDULED", "TIMED"}
@@ -125,7 +125,11 @@ def export(db_path):
                                                 dob=None, nationality=None, position=None, team=r["team_id"], seen=None, scorer=None))
         players[r["player_id"]]["scorer"] = dict(rank=r["rank"], played=r["played"], goals=r["goals"], assists=r["assists"],
                                                   penalties=r["penalties"], fetched_at=r["fetched_at"], snapshot=r["snapshot_id"])
-    keys = {(r[0], r[1]): r[2] for r in db.execute("SELECT entity, internal_id, source_key FROM source_id WHERE entity IN ('match','player')")}
+    # URL ids are football-data.org's own ids and nothing else: stable, numeric, path-safe.
+    keys = {(r[0], r[1]): r[2] for r in db.execute("SELECT entity, internal_id, source_key FROM source_id WHERE source=? AND entity IN ('match','player') ORDER BY internal_id", (fdorg.SOURCE,))}
+    for k, v in keys.items():
+        if not re.fullmatch(r"\d+", v):
+            errors.append(f"URL id {v!r} for {k[0]} {k[1]} is not a plain number")
     for m in matches:
         m["url_id"] = keys[("match", m["id"])]
     for p in players.values():
@@ -136,6 +140,8 @@ def export(db_path):
         for row in rows_:
             if row["player"] is not None:
                 target = next(p for p in players.values() if p["url_id"] == row["player"])
+                if target["team"] != team:
+                    continue            # never show one club's table on a player who the squad list puts at another club
                 target["wiki"] = dict(team=team, as_of=pg["as_of"], revision=pg["revision"], permalink=pg["permalink"], title=pg["title"],
                                       snapshot=pg["snapshot"], fetched_at=pg["fetched_at"], note=pg["note"], shirt=row["shirt"],
                                       loaned_in=row["loaned_in"], comps=row["comps"], apps_total=row["apps_total"], goals_total=row["goals_total"])
@@ -183,18 +189,18 @@ def _wiki(db, sid, teams, players):
         key = (r["team_id"], r["row_no"])
         row = rows.setdefault(key, dict(row_no=r["row_no"], team=r["team_id"], name=r["name"], shirt=r["shirt"], pos=r["pos"], nat=r["nat"],
                                         loaned_in=bool(r["loaned_in"]), comps=[], player=keyof.get(linked.get(key))))
-        c = dict(starts=r["starts"], subs=r["subs"], apps_raw=r["apps_raw"])
-        row["comps"].append(dict(competition=r["competition"], apps=wiki.total_apps(c), starts=r["starts"], subs=r["subs"], goals=r["goals"]))
+        c = dict(starts=r["starts"], subs=r["subs"], plain=r["apps_plain"])
+        row["comps"].append(dict(competition=r["competition"], apps=wiki.total_apps(c), starts=r["starts"], subs=r["subs"],
+                                 split=r["starts"] is not None and r["subs"] is not None, goals=r["goals"], blank=r["apps_raw"] == "" or r["goals_raw"] == ""))
     for (team, _), row in rows.items():
         pg = pages.get(team)
         if not pg or pg["status"] != "ok":
             continue
         pg["rows"] += 1
         pg["linked"] += row["player"] is not None
-        have = [c["apps"] for c in row["comps"] if c["apps"] is not None]
-        goals = [c["goals"] for c in row["comps"] if c["goals"] is not None]
-        row["apps_total"] = sum(have) if have else None
-        row["goals_total"] = sum(goals) if goals else None
+        # A total over a blank cell would silently understate, so a total exists only when every competition has a figure.
+        row["apps_total"] = sum(c["apps"] for c in row["comps"]) if all(c["apps"] is not None for c in row["comps"]) else None
+        row["goals_total"] = sum(c["goals"] for c in row["comps"]) if all(c["goals"] is not None for c in row["comps"]) else None
         clubs.setdefault(team, []).append(row)
     issues = [dict(r) for r in db.execute("SELECT kind, subject, detail FROM wiki_issue ORDER BY kind, subject")]
     return dict(licence=wiki.LICENCE, licence_url=wiki.LICENCE_URL, pages=list(pages.values()), clubs=clubs, issues=issues)

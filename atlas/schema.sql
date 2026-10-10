@@ -91,7 +91,8 @@ CREATE TABLE wiki_page (
 CREATE TABLE wiki_appearance (
   season_id INTEGER NOT NULL, team_id INTEGER NOT NULL, row_no INTEGER NOT NULL, col INTEGER NOT NULL, competition TEXT NOT NULL,
   player_title TEXT, name TEXT NOT NULL, shirt INTEGER, pos TEXT, nat TEXT, loaned_in INTEGER NOT NULL,
-  starts INTEGER, subs INTEGER, goals INTEGER, apps_raw TEXT NOT NULL, goals_raw TEXT NOT NULL,
+  starts INTEGER, subs INTEGER, apps_plain INTEGER,      -- 'a+b' fills starts and subs; a single number fills apps_plain only
+  goals INTEGER, apps_raw TEXT NOT NULL, goals_raw TEXT NOT NULL,
   PRIMARY KEY (season_id, team_id, row_no, col)
 );
 -- Computed in replay only when the evidence rule in atlas/replay.py holds. Everything else stays unlinked.

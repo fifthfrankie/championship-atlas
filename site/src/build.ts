@@ -75,6 +75,7 @@ export function check(d: Data, dir: string, baseUrl: string): string[] {
     if (!/<h1[ >]/.test(html)) bad.push(`${rel}: no h1`)
     for (const m of html.matchAll(/(?:href|src)="([^"#?]*)(?:[#?][^"]*)?"/g)) {
       const u = m[1]!
+      if (!/^(https?:|mailto:)/.test(u) && /[^A-Za-z0-9._\-/]/.test(u)) bad.push(`${rel}: unsafe characters in link ${u}`)
       if (!u || /^(https?:|mailto:)/.test(u)) continue
       if (!u.startsWith(baseUrl)) { bad.push(`${rel}: link outside base ${u}`); continue }
       if (!exists(u.slice(baseUrl.length))) bad.push(`${rel}: broken link ${u}`)

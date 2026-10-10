@@ -10,8 +10,9 @@ Do not stop at a plan, scaffold, mockup or passing unit tests.
 
 - Project root: `/Users/dev/personal/championship-atlas`. It exists and git is initialised on `main`. Commit after each completed task.
 - Do not push, create remotes, create accounts or enter payment details anywhere.
-- Scope of this run: M0 to M2. Stop after M2 and write the resume point. M3 and M4 are separate runs.
-- Time budget: 6 hours wall clock. Record the start time from `date` in `STATUS.md` and check it after each task.
+- Scope: M0 to M4. Owner instruction of 2026-10-10 supersedes the earlier "M0 to M2" limit and the "Later runs, out of scope now" and time-budget wording in sections 9 and 12. Search, the Nix-supplied browser and the Actions workflow are all in scope. Cut nothing.
+- Checkpoints: 6 hours wall clock per run is a checkpoint, not a stop rule. Record the start time from `date` in `STATUS.md`. At each checkpoint, commit, write the exact resume point in `STATUS.md`, then continue.
+- Owner needs: never stop to ask. Add the exact action to Blockers in `STATUS.md` and continue with independent work. Stop only when every remaining task is blocked on the owner.
 - Credentials: read `FOOTBALL_DATA_ORG_KEY` and `API_FOOTBALL_KEY` from `.env` in the project root. Never commit `.env`. If a key is empty, mark dependent features Blocked and continue with keyless sources.
 - Docker is not installed on this machine. Do not use it.
 - Browser checks: use Playwright with headless Chromium as a development dependency. If it cannot run, mark browser acceptance Blocked. Do not substitute curl or unit tests.

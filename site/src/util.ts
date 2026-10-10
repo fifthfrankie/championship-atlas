@@ -15,6 +15,9 @@ export const kickoffFull = (iso: string | null) => (iso ? fFull.format(new Date(
 export const kickoffFullFor = (m: Match) => (isProvisional(m) ? "Date and time to be confirmed" : kickoffFull(m.kickoff))
 export const kickoffWhen = (m: Match) => (isProvisional(m) ? "Date TBC" : kickoffDay(m.kickoff))
 export const kickoffClock = (m: Match) => (isProvisional(m) ? "Provisional" : kickoffTime(m.kickoff))
+const fLong = London({ day: "numeric", month: "long", year: "numeric" })
+/** '2026-09-19' -> '19 September 2026'. Dates without a time are shown as dates, never as moments. */
+export const dayLong = (isoDate: string) => fLong.format(new Date(`${isoDate}T12:00:00Z`))
 export const stamp = (iso: string) => fFull.format(new Date(iso)) + " UK time"
 export const shortId = (id: string) => id.slice(0, 10)
 

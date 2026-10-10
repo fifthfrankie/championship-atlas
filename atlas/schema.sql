@@ -77,3 +77,26 @@ CREATE TABLE source_standing (
   gf INTEGER NOT NULL, ga INTEGER NOT NULL, points INTEGER NOT NULL,
   fetched_at TEXT NOT NULL, snapshot_id TEXT NOT NULL REFERENCES snapshot(id), PRIMARY KEY (season_id, team_id)
 );
+
+-- Wikipedia club season pages (CC BY-SA 4.0). One row per page; a page that fails a check is kept but marked rejected.
+CREATE TABLE wiki_page (
+  season_id INTEGER NOT NULL REFERENCES season(id), team_id INTEGER NOT NULL REFERENCES team(id),
+  title TEXT NOT NULL, revision_id INTEGER, as_of TEXT,          -- as_of: the editors' "as of" date, a date not a time
+  competitions TEXT,                                              -- JSON list, in column order
+  status TEXT NOT NULL CHECK (status IN ('ok','rejected')), reason TEXT, note TEXT,   -- note: a soft caveat on an ok page
+  snapshot_id TEXT NOT NULL REFERENCES snapshot(id), fetched_at TEXT NOT NULL, PRIMARY KEY (season_id, team_id)
+);
+-- Grain: one row per listed player, per club, per season, per competition. A player the page does not list has NO row
+-- (not listed by the provider, not zero). A blank cell is NULL.
+CREATE TABLE wiki_appearance (
+  season_id INTEGER NOT NULL, team_id INTEGER NOT NULL, row_no INTEGER NOT NULL, col INTEGER NOT NULL, competition TEXT NOT NULL,
+  player_title TEXT, name TEXT NOT NULL, shirt INTEGER, pos TEXT, nat TEXT, loaned_in INTEGER NOT NULL,
+  starts INTEGER, subs INTEGER, goals INTEGER, apps_raw TEXT NOT NULL, goals_raw TEXT NOT NULL,
+  PRIMARY KEY (season_id, team_id, row_no, col)
+);
+-- Computed in replay only when the evidence rule in atlas/replay.py holds. Everything else stays unlinked.
+CREATE TABLE wiki_link (
+  season_id INTEGER NOT NULL, team_id INTEGER NOT NULL, row_no INTEGER NOT NULL,
+  player_id INTEGER NOT NULL REFERENCES player(id), PRIMARY KEY (season_id, team_id, row_no)
+);
+CREATE TABLE wiki_issue (kind TEXT NOT NULL, subject TEXT NOT NULL, detail TEXT NOT NULL);

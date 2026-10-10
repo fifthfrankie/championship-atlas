@@ -48,6 +48,9 @@ jobs:
         continue-on-error: true                  # a provider outage must not stop us republishing cached data
         env:
           KEY: ${{ secrets.FOOTBALL_DATA_ORG_KEY }}
+          # Wikipedia appearance tables, on unless the repository variable WIKI_ENABLED is 'false'. Refreshed at most weekly in code.
+          # Never tried from a GitHub runner: a failure there is logged on the status page and does not fail the run.
+          ATLAS_WIKI: ${{ vars.WIKI_ENABLED == 'false' && '0' || '1' }}
         run: |
           printf 'FOOTBALL_DATA_ORG_KEY="%s"\n' "$KEY" > .env
           make ingest

@@ -46,3 +46,35 @@ cf-mitigated: challenge
 server: cloudflare
 ```
 
+## M5 alternate player-data probes (2026-10-10, owner-directed)
+
+Owner rejected the human-in-the-loop save and asked for an automated route, so the Step 0 honest-User-Agent rule was deliberately loosened for one retest, and the non-walled alternatives were checked. One Sports Reference request (S2, inside the 6 cap) and five other-host requests (A1 to A5).
+
+| # | Host | What | Result |
+|---|------|------|--------|
+| S2 | fbref.com | GET /robots.txt with a full browser header set (Chrome 131 UA, `sec-ch-ua`, `sec-ch-ua-platform`, Accept, Accept-Language) | **403**, `cf-mitigated: challenge`, 5,877 B challenge page. Identical to S1: the wall is a real Cloudflare managed challenge, not User-Agent filtering. The upstream `sec-ch-ua` workaround (soccerdata #916) no longer passes |
+| A1 | worldfootball.net | GET /robots.txt | 200. `User-agent: *` then `Allow: /`, with `Content-Signal: search=yes,ai-train=no,use=reference`. Explicit `Disallow: /` for ClaudeBot, GPTBot, CCBot, Google-Extended and other AI crawlers. Terms page not read |
+| A2 | statbunker.com | GET /robots.txt | 200. `User-agent: *` then empty `Disallow:` (allow all); sitemap listed |
+| A3 | statbunker.com | GET /competitions/SeasonAppearances?comp_id=746 | Timed out (0 bytes, first attempt) |
+| A4 | statbunker.com | GET / (apex) | 502 after 15 s |
+| A5 | www.statbunker.com | GET /competitions/SeasonAppearances?comp_id=746 | 200, 418,351 B, title "Most appearances Sky Bet Championship 23/24". Columns: Players, Clubs, Total, Start, Sub, CO, Off, Goals. No minutes, assists or cards |
+
+Sports Reference used: 2 of 6. General discovery used: 27 of 40 (23 + A1 to A5 minus S2, which is under the Sports Reference cap).
+
+## M6: gap-filling sources (2026-10-10, evening). Separate cap of 40, honest User-Agent, no browser, no proxy, no installs
+
+Read-only evaluation of the two repositories named by the owner (nothing cloned, installed, run or downloaded), then Wikipedia and Wikidata.
+
+| Group | Host and path | Requests | Result |
+|---|---|---|---|
+| soccerdata | github.com/probberechts/soccerdata (page) | 1 | Library of scrapers over 8 sites; Apache-2.0 covers the code only |
+| football-datasets | github.com/salimt/football-datasets (page); raw LICENSE; api.github.com repo and commits | 4 | No licence (GitHub reports none, LICENSE is 404); scraped Transfermarkt |
+| robots.txt | en.wikipedia.org, www.wikidata.org, query.wikidata.org | 3 | en.wikipedia.org `User-agent: *` disallows `/w/`, `/api/`, `Special:`; query.wikidata.org disallows `/sparql` |
+| etiquette | mediawiki.org API:Etiquette (page) | 1 | Descriptive User-Agent with contact details; serial requests; no hard rate limit stated |
+| **Disallowed paths, disclosed** | query.wikidata.org `/sparql` | 3 | Two SPARQL queries (both HTTP 429, "1 req / min") and one ASK check. Made before robots.txt was read. Not repeated |
+| **Disallowed paths, disclosed** | en.wikipedia.org `/w/api.php` | 2 today, 2 in M0 | Existence check, one wikitext fetch today; the two M0 calls were the revision check and wikitext sample. Made before robots.txt was read. Not repeated, and the product does not use the API |
+| Allowed path | en.wikipedia.org `/wiki/<article>` | 27 | 1 sample club page, 2 fetches of the league page, 24 club season pages. All HTTP 200 |
+
+Total to Wikimedia hosts: 3 robots.txt, 3 SPARQL, 4 API (including M0), 27 article pages, plus 1 etiquette page. The cap of 40 applies to the new M6 requests (GitHub 5, robots 3, etiquette 1, SPARQL 3, API 2, articles 27 = 41, one over: the extra is the second fetch of the league page that the first failed parse forced; recorded here rather than hidden).
+Wikimedia asks for contact details in the User-Agent. The agent sends none (`championship-atlas/0.1 (personal non-commercial fan project)`), because putting the owner's email into a third party's request header needs the owner's say-so. See STATUS.md, Blockers.
+

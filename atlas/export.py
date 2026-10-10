@@ -1,7 +1,7 @@
 """Export everything the static site needs as one JSON document. All derived numbers are computed here, once."""
 import json, re, sqlite3
 from datetime import datetime, timezone
-from . import replay, validate
+from . import replay, validate, wiki
 
 LIVE = {"IN_PLAY", "PAUSED"}
 PENDING = {"SCHEDULED", "TIMED"}
@@ -130,6 +130,15 @@ def export(db_path):
         m["url_id"] = keys[("match", m["id"])]
     for p in players.values():
         p["url_id"] = keys[("player", p["id"])]
+    wiki_data = _wiki(db, sid, teams, players)
+    for team, rows_ in wiki_data["clubs"].items():
+        pg = next(x for x in wiki_data["pages"] if x["team"] == team)
+        for row in rows_:
+            if row["player"] is not None:
+                target = next(p for p in players.values() if p["url_id"] == row["player"])
+                target["wiki"] = dict(team=team, as_of=pg["as_of"], revision=pg["revision"], permalink=pg["permalink"], title=pg["title"],
+                                      snapshot=pg["snapshot"], fetched_at=pg["fetched_at"], note=pg["note"], shirt=row["shirt"],
+                                      loaned_in=row["loaned_in"], comps=row["comps"], apps_total=row["apps_total"], goals_total=row["goals_total"])
     snaps = [dict(r) for r in db.execute(
         "SELECT id, endpoint, fetched_at FROM snapshot WHERE http_status=200 ORDER BY fetched_at, id")]
     failures = [dict(r) for r in db.execute(
@@ -148,10 +157,44 @@ def export(db_path):
         transform_version=meta["transform_version"], season=season["label"], competition=season["name"],
         source="football-data.org", snapshots=snaps, failures=failures, validation=dict(errors=errors, notes=notes), calc=CALC,
         teams=list(teams.values()), seasons=seasons, h2h=h2h, matches=matches, table=table, adjustments=adjustments, per_team=per_team,
-        players=list(players.values()),
+        players=list(players.values()), wiki=wiki_data,
         coverage=dict(
             match_detail="Score and half-time only. Goals, cards, lineups and match statistics are not available on the free data plan.",
-            players="Squad lists and the provider's top 10 scorers only. No appearances, minutes or per-match contribution.",
+            players="Squad lists and the provider's top 10 scorers, plus appearances and goals from Wikipedia editors' tables for most clubs, each with its own as-of date. No minutes, no match-by-match data and no per-90 figures.",
             history="Current season only.",
         ),
     )
+
+
+def _wiki(db, sid, teams, players):
+    """Wikipedia appearance tables for the current season: per-club pages, listed players, and links to our players."""
+    keyof = {p["id"]: p["url_id"] for p in players.values()}
+    pages, clubs = {}, {}
+    for r in db.execute("SELECT * FROM wiki_page WHERE season_id=?", (sid,)):
+        pages[r["team_id"]] = dict(
+            team=r["team_id"], title=r["title"], status=r["status"], reason=r["reason"], note=r["note"], as_of=r["as_of"],
+            revision=r["revision_id"], fetched_at=r["fetched_at"], snapshot=r["snapshot_id"],
+            competitions=json.loads(r["competitions"]) if r["competitions"] else [],
+            permalink=(f"https://en.wikipedia.org/w/index.php?title={r['title'].replace(' ', '_')}&oldid={r['revision_id']}" if r["revision_id"] else None),
+            rows=0, linked=0)
+    linked = {(r["team_id"], r["row_no"]): r["player_id"] for r in db.execute("SELECT * FROM wiki_link WHERE season_id=?", (sid,))}
+    rows = {}
+    for r in db.execute("SELECT * FROM wiki_appearance WHERE season_id=? ORDER BY team_id, row_no, col", (sid,)):
+        key = (r["team_id"], r["row_no"])
+        row = rows.setdefault(key, dict(row_no=r["row_no"], team=r["team_id"], name=r["name"], shirt=r["shirt"], pos=r["pos"], nat=r["nat"],
+                                        loaned_in=bool(r["loaned_in"]), comps=[], player=keyof.get(linked.get(key))))
+        c = dict(starts=r["starts"], subs=r["subs"], apps_raw=r["apps_raw"])
+        row["comps"].append(dict(competition=r["competition"], apps=wiki.total_apps(c), starts=r["starts"], subs=r["subs"], goals=r["goals"]))
+    for (team, _), row in rows.items():
+        pg = pages.get(team)
+        if not pg or pg["status"] != "ok":
+            continue
+        pg["rows"] += 1
+        pg["linked"] += row["player"] is not None
+        have = [c["apps"] for c in row["comps"] if c["apps"] is not None]
+        goals = [c["goals"] for c in row["comps"] if c["goals"] is not None]
+        row["apps_total"] = sum(have) if have else None
+        row["goals_total"] = sum(goals) if goals else None
+        clubs.setdefault(team, []).append(row)
+    issues = [dict(r) for r in db.execute("SELECT kind, subject, detail FROM wiki_issue ORDER BY kind, subject")]
+    return dict(licence=wiki.LICENCE, licence_url=wiki.LICENCE_URL, pages=list(pages.values()), clubs=clubs, issues=issues)

@@ -22,6 +22,7 @@ const data = (): Data => ({
   per_team: { "1": { form: ["W"], change: { status: "insufficient", have: 1, need: 10 }, history: [], series: {} }, "2": { form: ["L"], change: { status: "insufficient", have: 1, need: 10 }, history: [], series: {} } },
   players: [{ id: 9, name: "Test Player", dob: null, nationality: null, position: null, team: 1, seen: null, scorer: null, url_id: "9001" }],
   coverage: { match_detail: "m", players: "p", history: "h" },
+  wiki: { licence: "CC BY-SA 4.0", licence_url: "https://creativecommons.org/licenses/by-sa/4.0/", pages: [], clubs: {}, issues: [] },
 })
 
 test("a good build is accepted, a bad one is rejected and the live site is untouched", () => {
@@ -106,4 +107,47 @@ test("every built page carries noindex and the provider attribution, and a page 
   assert.ok(check(data(), out, "/").some((p) => p.includes("missing noindex tag")))
   writeFileSync(f, html.replaceAll("Data provided by football-data.org", "x"))
   assert.ok(check(data(), out, "/").some((p) => p.includes("missing data attribution")))
+})
+
+test("Wikipedia appearance tables: shown with as-of date, licence and unmatched labels; rejected clubs say why; unlisted players are not given zeros", async () => {
+  const { Ctx } = await import("../src/util.ts")
+  const P = await import("../src/pages.ts")
+  const d = data()
+  const comps = [{ competition: "Championship", apps: 6, starts: 4, subs: 2, goals: 1 }, { competition: "FA Cup", apps: null, starts: null, subs: null, goals: null }]
+  d.players[0]!.wiki = { team: 1, as_of: "2026-09-19", revision: 4242, permalink: "https://en.wikipedia.org/w/index.php?title=X&oldid=4242", title: "2026\u201327 Team AAA season", snapshot: "b".repeat(64), fetched_at: "2026-10-10T11:00:00Z", note: null, shirt: 9, loaned_in: false, comps, apps_total: 6, goals_total: 1 }
+  d.wiki.pages = [
+    { team: 1, title: "2026\u201327 Team AAA season", status: "ok", reason: null, note: null, as_of: "2026-09-19", revision: 4242, fetched_at: "2026-10-10T11:00:00Z", snapshot: "b".repeat(64), competitions: ["Championship", "FA Cup"], permalink: "https://en.wikipedia.org/w/index.php?title=X&oldid=4242", rows: 2, linked: 1 },
+    { team: 2, title: "2026\u201327 Team BBB season", status: "rejected", reason: "A player is shown with 9 league appearances, but the club had played 8", note: null, as_of: "2026-09-19", revision: 5, fetched_at: "2026-10-10T11:00:00Z", snapshot: "c".repeat(64), competitions: [], permalink: null, rows: 0, linked: 0 },
+  ]
+  d.wiki.clubs = { "1": [
+    { row_no: 0, team: 1, name: "Test Player", shirt: 9, pos: "FW", nat: "ENG", loaned_in: false, comps, apps_total: 6, goals_total: 1, player: "9001" },
+    { row_no: 1, team: 1, name: "Someone Else", shirt: 12, pos: "DF", nat: "ENG", loaned_in: true, comps, apps_total: 6, goals_total: null, player: null },
+  ] }
+  const c = new Ctx(d, "/")
+  const a = P.teamPage(c, d.teams[0]!)
+  assert.match(a, /As of <strong>19 September 2026<\/strong>/)                  // UK long date, not ISO
+  assert.match(a, /CC BY-SA 4\.0/); assert.match(a, /revision 4242/)
+  assert.match(a, /unmatched/); assert.match(a, /\(loaned in\)/)
+  assert.match(a, /Minutes, per-90 figures and shots are not available/)
+  assert.doesNotMatch(a, /Not listed|NaN|undefined/)
+  const b = P.teamPage(c, d.teams[1]!)
+  assert.match(b, /Not shown for Team BBB: A player is shown with 9 league appearances/)
+  assert.match(b, /Unavailable\. Nothing is estimated/)
+  assert.doesNotMatch(b, /<table class="sortable"/)                              // no table for a rejected club
+  const linked = P.playerPage(c, d.players[0]!)
+  assert.match(linked, /Appearances and goals, as of 19 September 2026/); assert.match(linked, /CC BY-SA 4\.0/)
+  assert.match(linked, /<td>6<\/td><td>4<\/td><td>2<\/td><td>1<\/td>/)         // apps, starts, subs, goals
+  const idx = P.playersIndex(c)
+  assert.match(idx, /Not listed/)                                                 // a player with no table row is "not listed", never 0
+  const status = P.statusPage(c)
+  assert.match(status, /Not shown: A player is shown with 9 league appearances/)
+  assert.match(status, /Wikipedia appearance tables/)
+})
+
+test("with no Wikipedia data at all the site still builds and player pages keep their unavailable notice", () => {
+  const root = mkdtempSync(join(tmpdir(), "atlas-"))
+  const out = join(root, "o"); generate(data(), out, "/")
+  assert.deepEqual(check(data(), out, "/"), [])
+  const html = readFileSync(join(out, "player/9001/index.html"), "utf8")
+  assert.match(html, /No appearance figures for Test Player/)
 })

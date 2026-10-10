@@ -1,8 +1,8 @@
 import type { Match, Player, Team, Window } from "./types.js"
-import { Ctx, esc, isDone, isLive, isPending, kickoffClock, kickoffDay, kickoffFullFor, kickoffWhen, num, scoreText, shortId, signed, stamp, statusLabel } from "./util.js"
+import { Ctx, dayLong, esc, isDone, isLive, isPending, kickoffClock, kickoffDay, kickoffFullFor, kickoffWhen, num, scoreText, shortId, signed, stamp, statusLabel } from "./util.js"
 import { ATTRIBUTION, evidence, notice, page } from "./layout.js"
 import { pointsChart } from "./charts.js"
-import type { Row, SeasonSummary } from "./types.js"
+import type { Row, SeasonSummary, WikiPage, WikiRow } from "./types.js"
 
 const matchSnaps = (c: Ctx) => c.d.snapshots.filter((s) => s.endpoint === "matches").map((s) => s.id)
 const lastOf = (c: Ctx, ep: string) => c.d.snapshots.filter((s) => s.endpoint === ep).at(-1)
@@ -47,7 +47,7 @@ export function overview(c: Ctx): string {
 </section>
 ${live.length ? `<section aria-labelledby="live"><h2 id="live">In play when the data was last fetched</h2><ul class="mlist">${live.map((m) => matchRow(c, m)).join("")}</ul>${notice("info", "Live scores are as of the last fetch and can be out of date. They are not counted in the table.")}</section>` : ""}
 <section aria-labelledby="table"><h2 id="table">League table</h2>
-<div class="scroll"><table id="league" class="sortable num" data-sortable>
+<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table id="league" class="sortable num" data-sortable>
 <caption class="sr">League table, ${esc(d.season)}. Press a column heading to sort.</caption>
 <thead><tr>${th("pos", "#", "Position")}${th("team", "Club", "Club name", "left")}${th("p", "P", "Played")}${th("w", "W", "Won")}${th("d", "D", "Drawn")}${th("l", "L", "Lost")}${th("gf", "GF", "Goals for")}${th("ga", "GA", "Goals against")}${th("gd", "GD", d.calc.gd!)}${th("pts", "Pts", d.calc.points!)}<th scope="col" class="hide-s">Form</th></tr></thead>
 <tbody>${rows}</tbody></table></div>
@@ -189,10 +189,11 @@ ${changeSection(c, t)}
 <section aria-labelledby="fx"><h2 id="fx">Fixtures and results</h2>
 <div class="filters" id="tfilter"><label><input type="radio" name="tv" value="all" checked> All</label><label><input type="radio" name="tv" value="results"> Results</label><label><input type="radio" name="tv" value="fixtures"> Fixtures</label></div>
 <ul class="mlist" id="tlist">${mine.map((m) => matchRow(c, m, t.id)).join("")}</ul></section>
+${wikiClubSection(c, t)}
 ${historySection(c, t)}
 <section aria-labelledby="sq"><h2 id="sq">Squad</h2>
 ${squad.length ? `<p class="muted">Squad list as last seen ${stamp(squad[0]!.seen ?? d.built_at)}. Provider squad lists can lag real transfers, and shirt numbers and appearances are not available.</p>
-<div class="scroll"><table class="num"><caption class="sr">${esc(t.name)} squad</caption><thead><tr><th scope="col" class="left">Player</th><th scope="col" class="left">Position</th><th scope="col" class="left">Nationality</th><th scope="col" class="left">Born</th></tr></thead>
+<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(t.name)} squad</caption><thead><tr><th scope="col" class="left">Player</th><th scope="col" class="left">Position</th><th scope="col" class="left">Nationality</th><th scope="col" class="left">Born</th></tr></thead>
 <tbody>${groups.map((x) => pl(x.ps)).join("")}${pl(other)}</tbody></table></div>` : notice("info", "No squad list in the saved data for this club.")}
 ${evidence(c, { what: "Squad list as provided.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], fetched: lastOf(c, "teams")?.fetched_at })}</section>`
   return page(c, { title: t.name, path: `team/${t.slug}/`, nav: "teams", body })
@@ -200,10 +201,11 @@ ${evidence(c, { what: "Squad list as provided.", snapshotIds: [lastOf(c, "teams"
 
 export function playersIndex(c: Ctx): string {
   const d = c.d
+  const lg = (p: Player) => p.wiki?.comps.find((x) => /championship/i.test(x.competition))
   const teams = [...d.teams].sort((a, b) => a.name.localeCompare(b.name))
   const pos = [...new Set(d.players.map((p) => p.position).filter(Boolean))].sort()
   const rows = d.players.map((p) => `<tr data-team="${c.team(p.team).slug}" data-pos="${esc(p.position ?? "")}" data-name="${esc(p.name.toLowerCase())}">
-<th scope="row" data-sort="${esc(p.name)}"><a href="${c.href(`player/${p.url_id}/`)}">${esc(p.name)}</a></th><td>${c.teamLink(p.team)}</td><td>${esc(p.position ?? "Not supplied")}</td><td>${esc(p.nationality ?? "Not supplied")}</td><td data-sort="${p.dob ?? ""}">${p.dob ?? "Not supplied"}</td><td data-sort="${p.scorer?.goals ?? -1}">${p.scorer ? num(p.scorer.goals) : ""}</td></tr>`).join("")
+<th scope="row" data-sort="${esc(p.name)}"><a href="${c.href(`player/${p.url_id}/`)}">${esc(p.name)}</a></th><td>${c.teamLink(p.team)}</td><td>${esc(p.position ?? "Not supplied")}</td><td>${esc(p.nationality ?? "Not supplied")}</td><td data-sort="${p.dob ?? ""}">${p.dob ?? "Not supplied"}</td><td data-sort="${lg(p)?.apps ?? -1}">${p.wiki ? cell(lg(p)?.apps ?? null) : "Not listed"}</td><td data-sort="${lg(p)?.goals ?? -1}">${p.wiki ? cell(lg(p)?.goals ?? null) : "Not listed"}</td></tr>`).join("")
   const th = (k: string, l: string, tip = "") => `<th scope="col" class="left" data-key="${k}"><button type="button" title="${esc(tip || l)}">${l}</button></th>`
   const body = `<h1>Players</h1>
 <p>${d.players.length} players in current squad lists. ${esc(d.coverage.players)}</p>
@@ -212,11 +214,11 @@ export function playersIndex(c: Ctx): string {
 <label>Club <select name="team"><option value="">All clubs</option>${teams.map((t) => `<option value="${t.slug}">${esc(t.short_name ?? t.name)}</option>`).join("")}</select></label>
 <label>Position <select name="pos"><option value="">All</option>${pos.map((p) => `<option>${esc(p)}</option>`).join("")}</select></label>
 <output id="pcount" aria-live="polite"></output></form>
-<div class="scroll"><table id="players" class="sortable" data-sortable><caption class="sr">Players. Press a column heading to sort.</caption>
-<thead><tr>${th("name", "Player")}${th("club", "Club")}${th("pos", "Position")}${th("nat", "Nationality")}${th("dob", "Born")}${th("goals", "League goals", "League goals, only for the provider's top 10 scorers")}</tr></thead>
+<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table id="players" class="sortable" data-sortable><caption class="sr">Players. Press a column heading to sort.</caption>
+<thead><tr>${th("name", "Player")}${th("club", "Club")}${th("pos", "Position")}${th("nat", "Nationality")}${th("dob", "Born")}${th("lapps", "League apps", "League appearances from the club's Wikipedia table. Not listed means the player is not in a usable table, not zero.")}${th("lgoals", "League goals", "League goals from the same table")}</tr></thead>
 <tbody>${rows}</tbody></table></div>
 <p id="pempty" class="notice info" hidden>No players fit those filters.</p>
-${evidence(c, { what: "Squad lists and the top 10 scorers list as provided.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], fetched: lastOf(c, "teams")?.fetched_at })}`
+${evidence(c, { what: "Squad lists as provided by football-data.org. League appearances and goals come from the clubs' Wikipedia tables (CC BY-SA 4.0, see each club page for the revision and as-of date).", snapshotIds: [lastOf(c, "teams")?.id ?? ""], fetched: lastOf(c, "teams")?.fetched_at })}`
   return page(c, { title: "Players", path: "players/", nav: "players", body })
 }
 
@@ -229,11 +231,12 @@ export function playerPage(c: Ctx, p: Player): string {
 <dl class="facts"><dt>Position</dt><dd>${esc(p.position ?? "Not supplied")}</dd><dt>Nationality</dt><dd>${esc(p.nationality ?? "Not supplied")}</dd><dt>Born</dt><dd>${p.dob ?? "Not supplied"}</dd></dl>
 ${evidence(c, { what: "Name, position, nationality and date of birth from the provider's squad list.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], fetched: p.seen })}</section>
 <section><h2>${esc(d.season)} league record</h2>
+${playerWiki(c, p)}
 ${s ? `<dl class="kpis big"><div><dt>Top scorer rank</dt><dd>${s.rank}</dd></div><div><dt>Goals</dt><dd>${num(s.goals)}</dd></div><div><dt>Matches played</dt><dd>${num(s.played, "?")}</dd></div><div><dt>Assists</dt><dd>${num(s.assists)}</dd></div><div><dt>Penalties</dt><dd>${num(s.penalties)}</dd></div></dl>
 ${evidence(c, { what: "From the provider's top 10 scorers list. A blank means the provider did not supply it, not zero.", snapshotIds: [s.snapshot], fetched: s.fetched_at })}`
- : notice("info", `${esc(p.name)} is not in the provider's top 10 scorers, and this data source does not give appearances, minutes or goals for other players. A missing figure here means not available, not zero.`)}
+ : notice("info", `${esc(p.name)} is not in the provider's top 10 scorers. The top 10 list is the only goals data from that provider; appearance figures, where we have them, are shown above. A missing figure means not available, not zero.`)}
 </section>
-<section><h2>Match by match and career history</h2>${notice("info", `${esc(d.coverage.history)} Appearances, minutes and earlier seasons are not available from the current free sources.`)}</section>`
+<section><h2>Match by match and career history</h2>${notice("info", `${esc(d.coverage.history)} Minutes, match-by-match appearances and earlier seasons are not available from the current free sources.`)}</section>`
   return page(c, { title: p.name, path: `player/${p.url_id}/`, nav: "players", body })
 }
 
@@ -245,7 +248,7 @@ export function statusPage(c: Ctx): string {
   }).join("")
   const body = `<h1>Data status</h1>
 <section><h2>Freshness</h2><p>Match data last fetched <time datetime="${d.data_as_of}">${stamp(d.data_as_of)}</time>. Site built <time datetime="${d.built_at}">${stamp(d.built_at)}</time> with transformation version ${esc(d.transform_version)}.</p>
-<div class="scroll"><table><caption class="sr">Latest saved copy of each dataset</caption><thead><tr><th scope="col" class="left">Dataset</th><th scope="col" class="left">Fetched</th><th scope="col" class="left">Saved copy</th></tr></thead><tbody>${ep}</tbody></table></div>
+<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table><caption class="sr">Latest saved copy of each dataset</caption><thead><tr><th scope="col" class="left">Dataset</th><th scope="col" class="left">Fetched</th><th scope="col" class="left">Saved copy</th></tr></thead><tbody>${ep}</tbody></table></div>
 <p class="muted">The site is rebuilt on a schedule. If the match data was last fetched more than 36 hours ago, every page shows a warning, whatever time the site was built.</p></section>
 <section><h2>Fetch problems</h2>${d.failures.length ? `<ul>${d.failures.map((f) => `<li>${esc(f.params)} ${f.http_status === 0 ? "could not be reached" : `returned HTTP ${f.http_status}`} at ${stamp(f.fetched_at)}. ${f.recovered ? "A later fetch succeeded." : "No successful fetch since; the previous good data stays in use."}</li>`).join("")}</ul>` : "<p>No failed fetches recorded.</p>"}</section>
 <section><h2>Checks run before publishing</h2>
@@ -258,6 +261,12 @@ ${d.validation.errors.length ? notice("warn", d.validation.errors.map(esc).join(
 <tr><th scope="row">Players</th><td>${esc(d.coverage.players)}</td></tr>
 <tr><th scope="row">History</th><td>${esc(d.coverage.history)}</td></tr>
 <tr><th scope="row">Advanced metrics</th><td>Not available. No expected-goals, passing or shot-location data is held.</td></tr></tbody></table></section>
+<section><h2>Wikipedia appearance tables</h2>
+<p>League appearances and goals come from each club's own Wikipedia season page (licensed ${esc(d.wiki.licence)}), read once a week from the ordinary article page, never the API. Every figure is checked against the match results before it is shown.</p>
+<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table><caption class="sr">Wikipedia table status by club</caption><thead><tr><th scope="col" class="left">Club</th><th scope="col" class="left">Status</th><th scope="col" class="left">As of</th><th scope="col">Players listed</th><th scope="col">Matched</th><th scope="col" class="left">Fetched</th></tr></thead><tbody>${[...d.wiki.pages].sort((a, b) => c.name(a.team).localeCompare(c.name(b.team))).map((w) => `<tr><th scope="row">${esc(c.name(w.team))}</th><td class="left">${w.status === "ok" ? "Shown" : `Not shown: ${esc(w.reason ?? "")}`}${w.note ? ` (${esc(w.note)})` : ""}</td><td class="left">${w.as_of ? dayLong(w.as_of) : "unknown"}</td><td>${w.status === "ok" ? w.rows : ""}</td><td>${w.status === "ok" ? w.linked : ""}</td><td class="left">${stamp(w.fetched_at)}</td></tr>`).join("")}</tbody></table></div>
+<p class="muted">Matched means the Wikipedia row was linked to a player in the squad list by club, identical full name, and agreeing nationality or position. Unmatched rows are still shown on the club page. ${d.wiki.pages.filter((w) => w.status === "ok").reduce((n, w) => n + w.rows - w.linked, 0)} listed players are unmatched.</p>
+${d.wiki.issues.length ? notice("warn", d.wiki.issues.map((i) => `${esc(i.kind)}: ${esc(i.subject)}. ${esc(i.detail)}`).join("<br>")) : ""}
+<p class="muted">Text from Wikipedia is available under <a href="${esc(d.wiki.licence_url)}" rel="noopener">${esc(d.wiki.licence)}</a>. Figures adapted from it carry that licence and the attribution shown beside them.</p></section>
 <section><h2>Sources</h2><p><strong>${ATTRIBUTION}.</strong> Match, table, squad and scorer data: ${esc(d.source)}. This is an independent fan project and is not affiliated with the EFL or any club.</p></section>
 <section><h2>Measures explained</h2><dl class="facts">${Object.entries(d.calc).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>
 <section><h2>Saved copies used in this build</h2><p class="muted">${d.snapshots.length} saved copies.</p><ul class="plain mono">${d.snapshots.map((s) => `<li><code>${shortId(s.id)}</code> ${esc(s.endpoint)} ${stamp(s.fetched_at)}</li>`).join("")}</ul></section>`
@@ -281,7 +290,7 @@ function historySection(c: Ctx, t: Team): string {
   return `<section aria-labelledby="hist"><h2 id="hist">How this compares with earlier seasons</h2>
 ${chart}
 ${curAdj ? notice("info", `The chart plots points won in matches. The table total also includes a points adjustment of ${signed(curAdj)} (see the overview), so the chart line ends ${Math.abs(curAdj)} ${curAdj < 0 ? "higher" : "lower"} than the table.`) : ""}
-${hist.length ? `<div class="scroll"><table class="num"><caption class="sr">${esc(t.name)} league finish by season</caption><thead><tr><th scope="col" class="left">Season</th><th scope="col">Position</th><th scope="col">Pts</th><th scope="col">P</th><th scope="col">GD</th></tr></thead><tbody>${rows}</tbody></table></div>
+${hist.length ? `<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(t.name)} league finish by season</caption><thead><tr><th scope="col" class="left">Season</th><th scope="col">Position</th><th scope="col">Pts</th><th scope="col">P</th><th scope="col">GD</th></tr></thead><tbody>${rows}</tbody></table></div>
 <p class="muted">Earlier seasons are complete final tables. ${esc(cur)} is the table so far, so its points are not comparable with a full season.</p>` : notice("info", "No earlier Championship seasons are stored for this club.")}
 ${evidence(c, { what: "League results for each stored season, summed per club.", calc: d.calc.points, snapshotIds: [...matchSnaps(c), ...d.seasons.flatMap((x) => x.snapshots)] })}
 <details class="evidence"><summary>Compare ${esc(c.name(t.id))} with another club</summary><ul class="cols">${others.map((o) => `<li><a href="${c.href(`compare/${pairSlug(t, o)}/`)}">${esc(o.short_name ?? o.name)}</a></li>`).join("")}</ul></details></section>`
@@ -291,7 +300,7 @@ export const pairSlug = (a: Team, b: Team) => (a.slug < b.slug ? `${a.slug}-v-${
 
 function tableHtml(c: Ctx, rows: Row[], caption: string): string {
   const body = rows.map((r) => `<tr><td>${r.position}</td><th scope="row">${c.teamLink(r.team)}${r.adjustment ? ` <span class="adj" title="Points adjustment">${signed(r.adjustment)}</span>` : ""}</th><td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.gf}</td><td>${r.ga}</td><td>${signed(r.gd)}</td><td><strong>${r.points}</strong></td></tr>`).join("")
-  return `<div class="scroll"><table class="num"><caption class="sr">${esc(caption)}</caption><thead><tr><th scope="col">#</th><th scope="col" class="left">Club</th><th scope="col">P</th><th scope="col">W</th><th scope="col">D</th><th scope="col">L</th><th scope="col">GF</th><th scope="col">GA</th><th scope="col">GD</th><th scope="col">Pts</th></tr></thead><tbody>${body}</tbody></table></div>`
+  return `<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(caption)}</caption><thead><tr><th scope="col">#</th><th scope="col" class="left">Club</th><th scope="col">P</th><th scope="col">W</th><th scope="col">D</th><th scope="col">L</th><th scope="col">GF</th><th scope="col">GA</th><th scope="col">GD</th><th scope="col">Pts</th></tr></thead><tbody>${body}</tbody></table></div>`
 }
 
 export function seasonsIndex(c: Ctx): string {
@@ -355,7 +364,7 @@ export function comparePage(c: Ctx, a: Team, b: Team): string {
   }).join("")
   const body = `<nav class="crumb" aria-label="Breadcrumb"><a href="${c.href("compare/")}">Compare</a> / ${esc(a.short_name ?? a.name)} v ${esc(b.short_name ?? b.name)}</nav>
 <h1>${esc(a.name)} v ${esc(b.name)}</h1>
-<section><h2>${esc(d.season)} so far</h2><div class="scroll"><table><caption class="sr">Side by side, ${esc(d.season)}</caption><thead><tr><th scope="col" class="left">Measure</th><th scope="col"><a href="${c.href(`team/${a.slug}/`)}">${esc(c.name(a.id))}</a></th><th scope="col"><a href="${c.href(`team/${b.slug}/`)}">${esc(c.name(b.id))}</a></th></tr></thead><tbody>
+<section><h2>${esc(d.season)} so far</h2><div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table><caption class="sr">Side by side, ${esc(d.season)}</caption><thead><tr><th scope="col" class="left">Measure</th><th scope="col"><a href="${c.href(`team/${a.slug}/`)}">${esc(c.name(a.id))}</a></th><th scope="col"><a href="${c.href(`team/${b.slug}/`)}">${esc(c.name(b.id))}</a></th></tr></thead><tbody>
 ${row("League position", String(A.r.position), String(B.r.position))}${row("Points", String(A.r.points), String(B.r.points))}${row("Played", String(A.r.played), String(B.r.played))}${row("Goals for", String(A.r.gf), String(B.r.gf))}${row("Goals against", String(A.r.ga), String(B.r.ga))}${row("Goal difference", signed(A.r.gd), signed(B.r.gd))}
 ${row("Last five", A.pt.form.join(" ") || "-", B.pt.form.join(" ") || "-")}${row("Points from latest 5", A.l5 ? String(A.l5.points) : "Not enough matches", B.l5 ? String(B.l5.points) : "Not enough matches")}</tbody></table></div>
 ${evidence(c, { what: "Completed league matches.", calc: `${d.calc.points} ${d.calc.form}`, snapshotIds: matchSnaps(c) })}</section>
@@ -363,4 +372,55 @@ ${evidence(c, { what: "Completed league matches.", calc: `${d.calc.points} ${d.c
 ${notice("info", "Only seasons the data source provides for free are included, and only league matches. Play-offs and cups are not counted.")}
 ${evidence(c, { what: "Every completed league match between these two clubs in the stored seasons.", snapshotIds: [...matchSnaps(c), ...d.seasons.flatMap((x) => x.snapshots)] })}` : notice("info", "These clubs have not met in the league in the stored seasons.")}</section>`
   return page(c, { title: `${a.short_name ?? a.name} v ${b.short_name ?? b.name}`, path: `compare/${pairSlug(a, b)}/`, nav: "compare", body })
+}
+
+
+const leagueOf = (comps: { competition: string }[]) => comps.findIndex((c) => /championship/i.test(c.competition))
+const cell = (n: number | null) => (n === null ? '<abbr title="Left blank by the editors">-</abbr>' : String(n))
+
+/** Wikipedia reuse notice: source page and revision, the editors' as-of date, and the CC BY-SA 4.0 licence. */
+function wikiAttribution(c: Ctx, pg: WikiPage): string {
+  const w = c.d.wiki
+  return `<p class="muted">Appearances and goals adapted from the Wikipedia article <a href="${esc(pg.permalink ?? "#")}" rel="noopener">${esc(pg.title)}</a> (revision ${pg.revision}) by Wikipedia contributors, licensed <a href="${esc(w.licence_url)}" rel="noopener">${esc(w.licence)}</a>. Reformatted and checked by us. As of ${pg.as_of ? dayLong(pg.as_of) : "an unstated date"}; community-maintained, so it can lag or contain errors.</p>`
+}
+
+function wikiClubSection(c: Ctx, t: Team): string {
+  const pg = c.d.wiki.pages.find((p) => p.team === t.id)
+  const rows: WikiRow[] = c.d.wiki.clubs[String(t.id)] ?? []
+  const head = `<section aria-labelledby="wapps"><h2 id="wapps">Appearances and goals</h2>`
+  if (!pg) return `${head}${notice("info", "Not fetched yet. Appearance figures are not available for this club.")}</section>`
+  if (pg.status !== "ok") return `${head}${notice("warn", `Not shown for ${esc(c.name(t.id))}: ${esc(pg.reason ?? "failed a check")}.`)}${notice("info", "Appearances and minutes for this club are Unavailable. Nothing is estimated.")}</section>`
+  const lg = leagueOf(pg.competitions.map((competition) => ({ competition })))
+  const league = (r: WikiRow) => r.comps[lg]
+  const body = rows.map((r) => {
+    const l = league(r)
+    const name = r.player ? `<a href="${c.href(`player/${r.player}/`)}">${esc(r.name)}</a>` : `${esc(r.name)} <small class="muted" title="Not matched to a player in the squad list, so no player page">unmatched</small>`
+    return `<tr><td>${r.shirt ?? ""}</td><th scope="row" data-sort="${esc(r.name)}">${name}${r.loaned_in ? ' <small class="muted">(loaned in)</small>' : ""}</th><td>${esc(r.pos ?? "")}</td>
+<td data-sort="${l?.apps ?? -1}"><abbr title="${l?.starts ?? "?"} starts, ${l?.subs ?? "?"} as a substitute">${cell(l?.apps ?? null)}</abbr></td><td data-sort="${l?.goals ?? -1}">${cell(l?.goals ?? null)}</td>
+<td data-sort="${r.apps_total ?? -1}">${cell(r.apps_total)}</td><td data-sort="${r.goals_total ?? -1}">${cell(r.goals_total)}</td></tr>`
+  }).join("")
+  const th = (k: string, l: string, tip: string, cls = "") => `<th scope="col" class="${cls}" data-key="${k}"><button type="button" title="${esc(tip)}">${l}</button></th>`
+  return `${head}
+<p>As of <strong>${pg.as_of ? dayLong(pg.as_of) : ""}</strong>, the date the Wikipedia editors last updated this table. Matches since then are not included.</p>
+${pg.note ? notice("info", esc(pg.note)) : ""}
+<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="sortable" data-sortable><caption class="sr">${esc(t.name)} appearances and goals. Press a column heading to sort.</caption>
+<thead><tr><th scope="col">No.</th>${th("name", "Player", "Player", "left")}<th scope="col" class="left">Pos.</th>${th("lapps", "League apps", "League appearances: starts plus substitute appearances. Hover a figure for the split.")}${th("lgoals", "League goals", "League goals")}${th("apps", "All apps", "Appearances in all competitions listed")}${th("goals", "All goals", "Goals in all competitions listed")}</tr></thead>
+<tbody>${body}</tbody></table></div>
+${notice("info", "Minutes, per-90 figures and shots are not available from this source, so none are shown. A player missing from the list has not appeared, or the editors have not listed them. That is not shown as a zero.")}
+${wikiAttribution(c, pg)}
+${evidence(c, { what: `${rows.length} listed players from the club's season page. ${pg.linked} are matched to players in the squad list by club, identical full name, and agreeing nationality or position.`, calc: "Checked against the match results: no player's league appearances may exceed the matches the club had played by the as-of date, and players' league goals may not exceed the club's goals.", snapshotIds: [pg.snapshot], fetched: pg.fetched_at })}</section>`
+}
+
+
+function playerWiki(c: Ctx, p: Player): string {
+  const w = p.wiki
+  if (!w) return notice("info", `No appearance figures for ${esc(p.name)}. Either this club's Wikipedia table could not be used, the player is not listed in it, or the listing could not be matched safely to this player (club, identical full name, and agreeing nationality or position are all needed). Nothing is estimated.`)
+  const pg = c.d.wiki.pages.find((x) => x.team === w.team)!
+  const rows = w.comps.map((x) => `<tr><th scope="row" class="left">${esc(x.competition)}</th><td>${cell(x.apps)}</td><td>${cell(x.starts)}</td><td>${cell(x.subs)}</td><td>${cell(x.goals)}</td></tr>`).join("")
+  return `<h3>Appearances and goals, as of ${w.as_of ? dayLong(w.as_of) : ""}</h3>
+<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(p.name)} appearances and goals by competition</caption><thead><tr><th scope="col" class="left">Competition</th><th scope="col">Apps</th><th scope="col">Starts</th><th scope="col">As sub</th><th scope="col">Goals</th></tr></thead>
+<tbody>${rows}<tr><th scope="row" class="left">All listed</th><td><strong>${cell(w.apps_total)}</strong></td><td></td><td></td><td><strong>${cell(w.goals_total)}</strong></td></tr></tbody></table></div>
+${w.loaned_in ? notice("info", "Listed as loaned in to this club.") : ""}${w.note ? notice("info", esc(w.note)) : ""}
+${wikiAttribution(c, pg)}
+${evidence(c, { what: "This player's row in the club's Wikipedia appearances table, matched to the squad list by club, identical full name, and agreeing nationality or position.", calc: "Apps are starts plus substitute appearances, or the single figure the editors wrote. No minutes are available.", snapshotIds: [w.snapshot], fetched: w.fetched_at })}`
 }

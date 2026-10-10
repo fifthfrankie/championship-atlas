@@ -18,6 +18,9 @@ const clubs = data.teams.filter((t: { current: boolean }) => t.current).sort((a:
 const A = clubs[0].slug as string, B = clubs[1].slug as string
 const aShort = (clubs[0].short_name ?? clubs[0].name) as string
 const pair = A < B ? `${A}-v-${B}` : `${B}-v-${A}`
+const wikiPage = data.wiki.pages.find((p: { status: string; linked: number }) => p.status === "ok" && p.linked > 0)
+const wikiClub = data.teams.find((t: { id: number }) => t.id === wikiPage.team).slug as string
+const wikiRow = data.wiki.clubs[String(wikiPage.team)].find((r: { player: string | null }) => r.player)
 const doneMatch = data.matches.find((m: { status: string }) => m.status === "FINISHED").url_id as string
 const pastSeason = data.seasons[0].label as string
 const playerSurname = (data.players.find((p: { scorer: unknown }) => p.scorer) ?? data.players[0]).name.split(" ").at(-1).slice(0, 4).toLowerCase() as string
@@ -91,6 +94,19 @@ async function journey(p: Page, tag: string) {
   ok(true, `${tag}: keyboard search reaches a club`)
 
   // history and comparison
+  await p.goto(url(`team/${wikiClub}/`))
+  const rows = await p.locator("#wapps ~ div table tbody tr").count()
+  ok(rows >= 10, `${tag}: appearances table on ${wikiClub} lists ${rows} players`)
+  ok(/CC BY-SA 4\.0/.test(await p.locator("main").innerText()), `${tag}: appearances carry the licence`)
+  await p.locator('#wapps ~ div th[data-key="lapps"] button').click()
+  ok(/sort=lapps/.test(p.url()), `${tag}: appearances table sorts and keeps state in the URL`)
+  await noOverflow(p, `${tag} club appearances`)
+  await p.locator("#wapps").scrollIntoViewIfNeeded()
+  await p.screenshot({ path: join(shots, `${tag}-team-appearances.png`) })
+  await p.goto(url(`player/${wikiRow.player}/`))
+  ok(/Appearances and goals, as of/.test(await p.locator("main").innerText()), `${tag}: linked player page shows appearances`)
+  await noOverflow(p, `${tag} linked player`)
+  await p.screenshot({ path: join(shots, `${tag}-player-appearances.png`), fullPage: false })
   await p.goto(url(`team/${A}/`))
   ok((await p.locator("figure.chart svg").count()) === 1, `${tag}: points chart rendered`)
   await noOverflow(p, `${tag} team with chart`)
@@ -114,7 +130,7 @@ async function journey(p: Page, tag: string) {
 }
 
 async function quality(browser: Browser) {
-  const pages = ["", `team/${A}/`, `match/${doneMatch}/`, "players/", `compare/${pair}/`, `season/${pastSeason}/`, "matches/", "status/"]
+  const pages = ["", `team/${A}/`, `team/${wikiClub}/`, `player/${wikiRow.player}/`, `match/${doneMatch}/`, "players/", `compare/${pair}/`, `season/${pastSeason}/`, "matches/", "status/"]
   for (const scheme of ["light", "dark"] as const) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, colorScheme: scheme })
     const p = await ctx.newPage()

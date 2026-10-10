@@ -23,5 +23,5 @@ export function pointsChart(series: Record<string, number[]>, current: string, t
 <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title)}. Line chart; the table below has the same numbers." preserveAspectRatio="xMidYMid meet">
 ${grid.join("")}<text x="${(L + W - R) / 2}" y="${H - 1}" text-anchor="middle" class="ax">League matches played</text>
 <text x="10" y="${T + 6}" class="ax">Points</text>${lines}</svg>
-<details class="evidence"><summary>Show as a table</summary><div class="scroll"><table><thead><tr><th scope="col" class="left">Matches played</th>${labels.map((l) => `<th scope="col">${esc(l)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></details></figure>`
+<details class="evidence"><summary>Show as a table</summary><div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table><thead><tr><th scope="col" class="left">Matches played</th>${labels.map((l) => `<th scope="col">${esc(l)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></details></figure>`
 }

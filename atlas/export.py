@@ -127,7 +127,9 @@ def export(db_path):
     snaps = [dict(r) for r in db.execute(
         "SELECT id, endpoint, fetched_at FROM snapshot WHERE http_status=200 ORDER BY fetched_at, id")]
     failures = [dict(r) for r in db.execute(
-        "SELECT endpoint, http_status, fetched_at FROM snapshot WHERE http_status!=200 ORDER BY fetched_at DESC LIMIT 10")]
+        """SELECT f.endpoint, f.http_status, f.fetched_at,
+                  EXISTS (SELECT 1 FROM snapshot g WHERE g.http_status=200 AND g.endpoint=f.endpoint AND g.fetched_at>f.fetched_at) AS recovered
+           FROM snapshot f WHERE f.http_status!=200 ORDER BY f.fetched_at DESC LIMIT 10""")]
     meta = {r["key"]: r["value"] for r in db.execute("SELECT * FROM meta")}
     return dict(
         built_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

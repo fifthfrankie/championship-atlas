@@ -10,7 +10,8 @@ TRANSFORM_VERSION = "2"
 ADJUSTMENTS = Path(__file__).resolve().parent.parent / "data" / "adjustments.csv"
 
 
-def build(db_path, root=snapshots.ROOT, adjustments=ADJUSTMENTS):
+def build(db_path, root=None, adjustments=ADJUSTMENTS):
+    root = root or snapshots.ROOT
     db_path = Path(db_path)
     tmp = db_path.with_suffix(".building")
     tmp.unlink(missing_ok=True)

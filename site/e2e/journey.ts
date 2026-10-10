@@ -104,7 +104,11 @@ async function journey(p: Page, tag: string) {
 
 const browser = await chromium.launch()
 try {
-  await new Promise((r) => setTimeout(r, 700))
+  for (let i = 0; ; i++) {          // wait for the static server to answer
+    try { if ((await fetch(url(""))).ok) break } catch { /* not up yet */ }
+    if (i > 100) throw new Error("static server did not start")
+    await new Promise((r) => setTimeout(r, 100))
+  }
   for (const [tag, ctxOpts] of [["desktop", { viewport: { width: 1280, height: 860 } }], ["mobile", { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }]] as const) {
     const ctx = await browser.newContext(ctxOpts)
     await journey(await ctx.newPage(), tag)

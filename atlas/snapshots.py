@@ -5,7 +5,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent / "data" / "snapshots"
 
 
-def save(source, endpoint, params, body: bytes, status, fetched_at, root=ROOT):
+def save(source, endpoint, params, body: bytes, status, fetched_at, root=None):
+    root = root or ROOT
     sid = hashlib.sha256(body).hexdigest()
     rel = f"{source}/{sid[:2]}/{sid}.json.gz"
     path = root / rel
@@ -22,7 +23,8 @@ def save(source, endpoint, params, body: bytes, status, fetched_at, root=ROOT):
     return entry
 
 
-def entries(root=ROOT):
+def entries(root=None):
+    root = root or ROOT
     manifest = root / "manifest.jsonl"
     if not manifest.exists():
         return []
@@ -37,7 +39,8 @@ def entries(root=ROOT):
     return out
 
 
-def read(entry, root=ROOT):
+def read(entry, root=None):
+    root = root or ROOT
     body = gzip.decompress((root / entry["path"]).read_bytes())
     if hashlib.sha256(body).hexdigest() != entry["id"]:
         raise ValueError(f"snapshot {entry['id']} fails its checksum")

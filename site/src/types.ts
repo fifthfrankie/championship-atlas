@@ -22,7 +22,7 @@ export interface Player { id: number; name: string; dob: string | null; national
 export interface Data {
   built_at: string; transform_version: string; season: string; competition: string; source: string
   snapshots: { id: string; endpoint: string; fetched_at: string }[]
-  failures: { endpoint: string; http_status: number; fetched_at: string }[]
+  failures: { endpoint: string; http_status: number; fetched_at: string; recovered: number }[]
   validation: { errors: string[]; notes: string[] }
   calc: Record<string, string>
   teams: Team[]; seasons: SeasonSummary[]; h2h: Meeting[]; matches: Match[]; table: Row[]; adjustments: Adjustment[]

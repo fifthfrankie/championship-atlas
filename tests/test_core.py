@@ -140,14 +140,12 @@ class Ingest(unittest.TestCase):
         (self.d / ".env").write_text('FOOTBALL_DATA_ORG_KEY="abc"\n')
         self._root = snapshots.ROOT
         snapshots.ROOT = self.d / "snaps"
-        snapshots.save.__defaults__ = (snapshots.ROOT,)       # default root for this test only
         import contextlib, io
         self._quiet = contextlib.redirect_stdout(io.StringIO()); self._quiet.__enter__()
 
     def tearDown(self):
         self._quiet.__exit__(None, None, None)
         snapshots.ROOT = self._root
-        snapshots.save.__defaults__ = (self._root,)
 
     def test_interrupted_run_keeps_saved_data_and_rerun_does_not_duplicate_snapshots(self):
         calls = []
@@ -180,3 +178,16 @@ class Ingest(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertLessEqual(len(calls), 12)
         self.assertEqual(calls.count("/competitions/ELC/matches"), 3)    # first try plus two retries
+
+
+class Backfill(Ingest):
+    def test_fetches_only_missing_seasons_and_stops_at_403(self):
+        cur = json.dumps({"filters": {"season": "2026"}}).encode()
+        snapshots.save("football-data.org", "matches", "/competitions/ELC/matches", cur, 200, "2026-10-01T00:00:00Z", snapshots.ROOT)
+        snapshots.save("football-data.org", "matches", "/competitions/ELC/matches?season=2025", b'{"x":1}', 200, "2026-10-01T00:00:00Z", snapshots.ROOT)
+        seen = []
+        def fake(path, params, token):
+            seen.append((path.rsplit("/", 1)[1], params["season"]))
+            return (403, b"{}") if params["season"] == 2024 else (200, b'{"y":1}')
+        self.assertEqual(self.cli.backfill(fetch=fake, sleep=lambda s: None), 0)
+        self.assertEqual(seen, [("standings", 2025), ("matches", 2024)])   # 2025 matches already held; 2024 refused, so stop

@@ -4,6 +4,7 @@ setup:
 	npm ci --prefix site
 ingest:
 	python3 -m atlas.cli ingest
+	python3 -m atlas.cli backfill
 replay:
 	python3 -m atlas.cli replay
 build: replay

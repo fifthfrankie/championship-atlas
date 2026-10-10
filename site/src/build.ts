@@ -28,9 +28,9 @@ export function plan(c: Ctx): [string, () => string][] {
     [`season/${d.season}/`, () => P.seasonPage(c, d.season)],
   ]
   for (const s of d.seasons) out.push([`season/${s.label}/`, () => P.seasonPage(c, s.label)])
-  for (const m of d.matches) out.push([`match/${m.id}/`, () => P.matchPage(c, m)])
+  for (const m of d.matches) out.push([`match/${m.url_id}/`, () => P.matchPage(c, m)])
   for (const t of cur) out.push([`team/${t.slug}/`, () => P.teamPage(c, t)])
-  for (const p of d.players) out.push([`player/${p.id}/`, () => P.playerPage(c, p)])
+  for (const p of d.players) out.push([`player/${p.url_id}/`, () => P.playerPage(c, p)])
   for (let i = 0; i < cur.length; i++) for (let j = i + 1; j < cur.length; j++) {
     const [a, b] = [cur[i]!, cur[j]!]
     out.push([`compare/${P.pairSlug(a, b)}/`, () => P.comparePage(c, a, b)])
@@ -43,13 +43,13 @@ export function generate(d: Data, dir: string, baseUrl: string) {
   for (const [path, render] of plan(c)) write(dir, path, render())
   const index = [
     ...d.teams.filter((t) => t.current).map((t) => ({ n: t.name, s: t.short_name ?? "", k: "Club", u: `team/${t.slug}/` })),
-    ...d.players.map((p) => ({ n: p.name, s: c.name(p.team), k: "Player", u: `player/${p.id}/` })),
+    ...d.players.map((p) => ({ n: p.name, s: c.name(p.team), k: "Player", u: `player/${p.url_id}/` })),
   ]
   write(dir, "search-index.json", JSON.stringify(index))
   mkdirSync(join(dir, "assets"), { recursive: true })
   cpSync(join(here, "style.css"), join(dir, "assets/style.css"))
   buildSync({ entryPoints: [join(here, "client.ts")], bundle: true, minify: true, format: "esm", target: "es2022", outfile: join(dir, "assets/client.js") })
-  write(dir, "build-info.json", JSON.stringify({ built_at: d.built_at, transform_version: d.transform_version, snapshots: d.snapshots.map((s) => s.id), season: d.season }, null, 1))
+  write(dir, "build-info.json", JSON.stringify({ built_at: d.built_at, data_as_of: d.data_as_of, transform_version: d.transform_version, snapshots: d.snapshots.map((s) => s.id), season: d.season }, null, 1))
 }
 
 function walk(dir: string): string[] {
@@ -97,6 +97,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     generate(d, tmp, base)
     const problems = check(d, tmp, base)
     if (problems.length) {
+      rmSync(tmp, { recursive: true, force: true })
       console.error(`BUILD REJECTED, previous site left in place:\n- ${problems.slice(0, 20).join("\n- ")}`)
       process.exit(1)
     }

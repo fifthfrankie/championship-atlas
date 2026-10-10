@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 SOURCE = "football-data.org"
 BASE = "https://api.football-data.org/v4"
-MAX_REQUESTS_PER_RUN = 12      # free limit is 10 per minute; a run stays far below any daily concern
+MAX_REQUESTS_PER_RUN = 20      # one process, including retries; spaced so the free limit of 10 per minute is never reached
 MIN_INTERVAL_S = 7             # 60/7 < 10 per minute
 FINISHED = "FINISHED"
 
@@ -100,6 +100,8 @@ def fetch(path, params, token, opener=urllib.request.urlopen):
             return r.status, r.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()
+    except (urllib.error.URLError, TimeoutError, OSError) as e:   # DNS, reset, timeout: status 0, retried like a 5xx
+        return 0, json.dumps({"message": f"network error: {type(e).__name__}"}).encode()
 
 
 def token_from_env(env_path):

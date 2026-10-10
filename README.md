@@ -32,7 +32,7 @@ make build  -> build/data.json -> build/site               validate, then swap; 
 ## Data and limits (details in `docs/`)
 
 - Source: football-data.org free plan. Current season results, fixtures, table, squads and top 10 scorers; three earlier seasons of results and tables. No lineups, appearances, minutes or advanced metrics. Player career history is Unavailable.
-- Free limit: 10 requests per minute, hard stop. A run uses at most 12 requests (`MAX_REQUESTS_PER_RUN`), spaced 7 seconds apart.
+- Free limit: 10 requests per minute, hard stop. One `make ingest` is a single process capped at 20 requests (`MAX_REQUESTS_PER_RUN`, retries included), spaced 7 seconds apart. Network errors count as failures and are retried like a 429.
 - Retention: snapshots are immutable and only change when the provider data changes. Estimated growth about 10 KB compressed per matches change. Repository size ceiling for snapshots: 200 MB, which is more than five seasons at four changes a day. A `make check` guard is not needed below that; revisit if snapshots ever enter git.
 - Snapshots are git-ignored (`data/snapshots/README.md`) because the provider's terms on redistribution are unconfirmed. In CI they live in the Actions cache and are refetched when missing.
 
@@ -51,4 +51,6 @@ gh workflow run "Refresh and publish"
 
 The workflow does nothing until `PUBLISH_ENABLED` is `true`. Set it to `false` to pause. It runs four times a day, one run at a time, with a 15 minute cap. Failures open one issue and email the owner.
 
-GitHub pauses scheduled workflows after 60 days without repository activity; the workflow re-enables itself each run, and `gh workflow enable publish.yml` does it by hand.
+### Keeping it running
+
+GitHub pauses scheduled workflows in a public repository after 60 days without repository activity. The workflow's self-enable step cannot revive a schedule that is already paused, so it does not make the schedule permanent. Push any commit, or run `gh workflow enable publish.yml`, at least every 8 weeks. If the schedule stops, every page shows a stale-data warning once the match data is 36 hours old, because the warning measures when the data was last fetched, not when the site was built.

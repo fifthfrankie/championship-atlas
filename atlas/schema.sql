@@ -8,6 +8,12 @@ CREATE TABLE snapshot (
   http_status INTEGER NOT NULL,
   path TEXT NOT NULL
 );
+-- Every fetch attempt, successful or not, in manifest order. Failures are not snapshots: identical error bodies
+-- from different requests must stay distinct, and a snapshot id means "a saved good copy".
+CREATE TABLE fetch_log (
+  seq INTEGER PRIMARY KEY, source TEXT NOT NULL, endpoint TEXT NOT NULL, params TEXT NOT NULL,
+  fetched_at TEXT NOT NULL, http_status INTEGER NOT NULL, snapshot_id TEXT
+);
 CREATE TABLE competition (id INTEGER PRIMARY KEY, name TEXT NOT NULL, country TEXT);
 CREATE TABLE season (
   id INTEGER PRIMARY KEY, competition_id INTEGER NOT NULL REFERENCES competition(id),
@@ -51,10 +57,10 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE player (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, date_of_birth TEXT, nationality TEXT, position TEXT
 );
--- Dated squad membership as observed in one snapshot. observed_at is when we saw it, not when they joined.
+-- Squad membership as listed in one snapshot. fetched_at is when we fetched that list (our time), not when they joined.
 CREATE TABLE squad_membership (
   season_id INTEGER NOT NULL REFERENCES season(id), team_id INTEGER NOT NULL REFERENCES team(id),
-  player_id INTEGER NOT NULL REFERENCES player(id), observed_at TEXT NOT NULL,
+  player_id INTEGER NOT NULL REFERENCES player(id), fetched_at TEXT NOT NULL,
   snapshot_id TEXT NOT NULL REFERENCES snapshot(id), PRIMARY KEY (season_id, team_id, player_id)
 );
 -- Provider's own top-scorers list (top 10 only on the free tier). NULL assists/penalties = not supplied.
@@ -62,12 +68,12 @@ CREATE TABLE scorer (
   season_id INTEGER NOT NULL REFERENCES season(id), rank INTEGER NOT NULL,
   player_id INTEGER NOT NULL REFERENCES player(id), team_id INTEGER NOT NULL REFERENCES team(id),
   played INTEGER, goals INTEGER, assists INTEGER, penalties INTEGER,
-  observed_at TEXT NOT NULL, snapshot_id TEXT NOT NULL REFERENCES snapshot(id), PRIMARY KEY (season_id, rank)
+  fetched_at TEXT NOT NULL, snapshot_id TEXT NOT NULL REFERENCES snapshot(id), PRIMARY KEY (season_id, rank)
 );
 -- The provider's published table, kept only to reconcile our own calculation.
 CREATE TABLE source_standing (
   season_id INTEGER NOT NULL REFERENCES season(id), team_id INTEGER NOT NULL REFERENCES team(id),
   position INTEGER NOT NULL, played INTEGER NOT NULL, won INTEGER NOT NULL, drawn INTEGER NOT NULL, lost INTEGER NOT NULL,
   gf INTEGER NOT NULL, ga INTEGER NOT NULL, points INTEGER NOT NULL,
-  observed_at TEXT NOT NULL, snapshot_id TEXT NOT NULL REFERENCES snapshot(id), PRIMARY KEY (season_id, team_id)
+  fetched_at TEXT NOT NULL, snapshot_id TEXT NOT NULL REFERENCES snapshot(id), PRIMARY KEY (season_id, team_id)
 );

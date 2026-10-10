@@ -4,7 +4,7 @@ from pathlib import Path
 from . import fdorg, snapshots
 
 SCHEMA = (Path(__file__).parent / "schema.sql").read_text()
-TRANSFORM_VERSION = "2"
+TRANSFORM_VERSION = "3"
 
 
 ADJUSTMENTS = Path(__file__).resolve().parent.parent / "data" / "adjustments.csv"
@@ -20,10 +20,15 @@ def build(db_path, root=None, adjustments=ADJUSTMENTS):
     db.executescript(SCHEMA)
     used = []
     for e in sorted(snapshots.entries(root), key=lambda e: (e["endpoint"] != "matches", e["fetched_at"], e["id"])):
+        ok = e["http_status"] == 200
+        db.execute("INSERT INTO fetch_log(source, endpoint, params, fetched_at, http_status, snapshot_id) VALUES (?,?,?,?,?,?)",
+                   (e["source"], e["endpoint"], e["params"], e["fetched_at"], e["http_status"], e["id"] if ok else None))
+        if not ok:
+            continue
         # Same body fetched again: the later fetch time is when the data was last confirmed current.
         db.execute("INSERT INTO snapshot VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET fetched_at=excluded.fetched_at",
                    (e["id"], e["source"], e["endpoint"], e["params"], e["fetched_at"], e["http_status"], e["path"]))
-        if e["http_status"] == 200 and e["source"] == fdorg.SOURCE and e["endpoint"] in HANDLERS:
+        if e["source"] == fdorg.SOURCE and e["endpoint"] in HANDLERS:
             parse, apply = HANDLERS[e["endpoint"]]
             apply(db, e, parse(snapshots.read(e, root)))
             used.append(e["id"])

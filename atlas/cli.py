@@ -30,23 +30,31 @@ class _Run:
             status, body = self.fetch(path, params, self.token); self.sent += 1
             e = snapshots.save(fdorg.SOURCE, name, label, body, status, fdorg.now())
             print(f"{label} -> HTTP {status}, snapshot {e['id'][:12]}")
-            if status == 200 or (status < 500 and status != 429):
+            if status == 200 or (0 < status < 500 and status != 429):
                 break
         self.failed += status != 200
         return status
 
 
+def _ingest_current(run):
+    for path, name in PLAN:
+        if run.get(path, {}, name) is None:
+            return False
+    return True
+
+
 def ingest(fetch=fdorg.fetch, sleep=time.sleep):
-    """Current season. Every response is saved the moment it arrives, so an interrupted run loses nothing."""
+    """Current season, then any missing earlier seasons, all in ONE bounded run (one request cap, one pace).
+    Every response is saved the moment it arrives, so an interrupted run loses nothing."""
     try:
         run = _Run(fetch, sleep)
     except (fdorg.Blocked, FileNotFoundError) as e:
         print(f"ingest BLOCKED: {e}. Add a free football-data.org key to .env (see STATUS.md).")
         return 2
-    for path, name in PLAN:
-        if run.get(path, {}, name) is None:
-            return 1
-    return 1 if run.failed else 0
+    if not _ingest_current(run):
+        return 1
+    rc = backfill(fetch, sleep, run)
+    return 1 if run.failed or rc not in (0,) else 0
 
 
 def current_season():
@@ -58,18 +66,19 @@ def current_season():
     return int(json.loads(snapshots.read(best))["filters"]["season"]) if best else None
 
 
-def backfill(fetch=fdorg.fetch, sleep=time.sleep):
+def backfill(fetch=fdorg.fetch, sleep=time.sleep, run=None):
     """Finished seasons never change, so each one is fetched once and then skipped. Safe to run every time."""
     year = current_season()
     if year is None:
         print("backfill: no current-season snapshot yet, run ingest first")
         return 1
     have = {(e["endpoint"], e["params"]) for e in snapshots.entries() if e["http_status"] == 200}
-    try:
-        run = _Run(fetch, sleep)
-    except (fdorg.Blocked, FileNotFoundError) as e:
-        print(f"backfill BLOCKED: {e}")
-        return 2
+    if run is None:
+        try:
+            run = _Run(fetch, sleep)
+        except (fdorg.Blocked, FileNotFoundError) as e:
+            print(f"backfill BLOCKED: {e}")
+            return 2
     for y in range(year - 1, year - 1 - HISTORY_SEASONS, -1):
         for path, name in PLAN[:2]:
             if (name, f"{path}?season={y}") in have:

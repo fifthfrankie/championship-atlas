@@ -71,7 +71,9 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: build/site-pages
-      - name: Keep the schedule alive (GitHub pauses schedules after 60 days without repository activity)
+      # Best effort only. GitHub disables schedules after 60 days without repository activity, and a run that
+      # never happens cannot re-enable itself, so this does NOT make the schedule permanent. See README, "Keeping it running".
+      - name: Re-enable this workflow if it was paused
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow enable publish.yml --repo "${{ github.repository }}" || true
@@ -108,3 +110,19 @@ jobs:
               --body "Run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} did not complete cleanly (ingest, build or deploy). The previous site stays live and shows a stale warning after 36 hours."
           fi
           exit 1
+
+  recover:
+    needs: [build, deploy]
+    if: ${{ vars.PUBLISH_ENABLED == 'true' && needs.build.outputs.ingest_ok == 'true' && needs.deploy.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Close the outage issue once a clean run completes
+        run: |
+          for n in $(gh issue list --repo "${{ github.repository }}" --state open --search "Scheduled refresh failed in:title" --json number --jq '.[].number'); do
+            gh issue close "$n" --repo "${{ github.repository }}" --comment "Recovered: run ${{ github.run_id }} completed cleanly."
+          done

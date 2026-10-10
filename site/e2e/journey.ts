@@ -12,6 +12,16 @@ const url = (p: string) => `http://localhost:${PORT}/${p}`
 const shots = join(root, "docs/screenshots")
 mkdirSync(shots, { recursive: true })
 
+// Names come from the built data, so the test survives a new season.
+const data = JSON.parse(readFileSync(join(root, "build/data.json"), "utf8"))
+const clubs = data.teams.filter((t: { current: boolean }) => t.current).sort((a: { slug: string }, b: { slug: string }) => a.slug.localeCompare(b.slug))
+const A = clubs[0].slug as string, B = clubs[1].slug as string
+const aShort = (clubs[0].short_name ?? clubs[0].name) as string
+const pair = A < B ? `${A}-v-${B}` : `${B}-v-${A}`
+const doneMatch = data.matches.find((m: { status: string }) => m.status === "FINISHED").url_id as string
+const pastSeason = data.seasons[0].label as string
+const playerSurname = (data.players.find((p: { scorer: unknown }) => p.scorer) ?? data.players[0]).name.split(" ").at(-1).slice(0, 4).toLowerCase() as string
+
 const server = spawn("python3", ["-m", "http.server", String(PORT), "--directory", join(root, "build/site")], { stdio: "ignore" })
 let failed = 0
 const ok = (cond: unknown, msg: string) => { if (!cond) { failed++; console.error("FAIL", msg) } else console.log("ok  ", msg) }
@@ -64,36 +74,36 @@ async function journey(p: Page, tag: string) {
   await p.screenshot({ path: join(shots, `${tag}-player.png`), fullPage: true })
 
   // filters in the URL
-  await p.goto(url("matches/?view=results&team=swansea"))
+  await p.goto(url(`matches/?view=results&team=${A}`))
   const visible = await p.locator("#mlist .mrow:not([hidden])").count()
   ok(visible > 0 && (await p.locator("#mlist .mrow:not([hidden])[data-state=fixture]").count()) === 0, `${tag}: matches filter from URL (${visible} results)`)
-  await p.goto(url("players/?q=lar"))
+  await p.goto(url(`players/?q=${playerSurname}`))
   ok((await p.locator("#players tbody tr:not([hidden])").count()) > 0, `${tag}: player filter from URL`)
   await p.screenshot({ path: join(shots, `${tag}-players.png`), fullPage: false })
 
   // search by keyboard
   await p.goto(url(""))
   await p.keyboard.press("/")
-  await p.keyboard.type("swansea")
+  await p.keyboard.type(aShort.toLowerCase())
   await p.waitForSelector("#results li[role=option]")
   await p.keyboard.press("ArrowDown"); await p.keyboard.press("Enter")
-  await p.waitForURL(/\/team\/swansea\//)
+  await p.waitForURL(new RegExp(`/team/${A}/`))
   ok(true, `${tag}: keyboard search reaches a club`)
 
   // history and comparison
-  await p.goto(url("team/swansea/"))
+  await p.goto(url(`team/${A}/`))
   ok((await p.locator("figure.chart svg").count()) === 1, `${tag}: points chart rendered`)
   await noOverflow(p, `${tag} team with chart`)
   await p.screenshot({ path: join(shots, `${tag}-team-history.png`), fullPage: true })
   await p.goto(url("compare/"))
-  await p.selectOption("select[name=a]", "swansea"); await p.selectOption("select[name=b]", "watford")
+  await p.selectOption("select[name=a]", A); await p.selectOption("select[name=b]", B)
   await p.click("button.btn")
-  await p.waitForURL(/\/compare\/swansea-v-watford\//)
+  await p.waitForURL(new RegExp(`/compare/${pair}/`))
   ok((await p.locator("body").innerText()).includes("Head to head"), `${tag}: comparison page reached`)
   await noOverflow(p, `${tag} compare`)
   await p.screenshot({ path: join(shots, `${tag}-compare.png`), fullPage: true })
-  await p.goto(url("seasons/")); await p.locator("a.card", { hasText: "2024-25" }).click()
-  await p.waitForURL(/\/season\/2024-25\//)
+  await p.goto(url("seasons/")); await p.locator("a.card", { hasText: pastSeason }).click()
+  await p.waitForURL(new RegExp(`/season/${pastSeason}/`))
   ok((await p.locator("tbody tr").count()) === 24, `${tag}: past season table has 24 clubs`)
   await p.screenshot({ path: join(shots, `${tag}-season.png`), fullPage: false })
 
@@ -104,7 +114,7 @@ async function journey(p: Page, tag: string) {
 }
 
 async function quality(browser: Browser) {
-  const pages = ["", "team/swansea/", "match/1/", "players/", "compare/swansea-v-watford/", "season/2024-25/", "matches/", "status/"]
+  const pages = ["", `team/${A}/`, `match/${doneMatch}/`, "players/", `compare/${pair}/`, `season/${pastSeason}/`, "matches/", "status/"]
   for (const scheme of ["light", "dark"] as const) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, colorScheme: scheme })
     const p = await ctx.newPage()
@@ -139,13 +149,13 @@ async function quality(browser: Browser) {
   ok((await p.locator('#league th[data-key="pts"]').getAttribute("aria-sort")) === "ascending", "keyboard: Enter on a column heading sorts")
   await ctx.close()
   // stale state, judged against a clock three days after the build
-  const built = JSON.parse(readFileSync(join(root, "build/site/build-info.json"), "utf8")).built_at as string
+  const built = JSON.parse(readFileSync(join(root, "build/site/build-info.json"), "utf8")).data_as_of as string
   const sctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
   const sp = await sctx.newPage()
   await sp.clock.install({ time: new Date(Date.parse(built) + 72 * 3600e3) })
   await sp.goto(url(""))
   const banner = await sp.locator("#stale").innerText()
-  ok(/3 days ago/.test(banner), `stale: warning shown when the data is 3 days old ("${banner}")`)
+  ok(/3 days ago/.test(banner), `stale: warning shown when the last fetch is 3 days old ("${banner}")`)
   await sp.screenshot({ path: join(shots, "mobile-stale.png") })
   await sctx.close()
   const fctx = await browser.newContext(); const fp = await fctx.newPage()

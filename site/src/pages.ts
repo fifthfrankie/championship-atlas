@@ -1,5 +1,5 @@
 import type { Match, Player, Team, Window } from "./types.js"
-import { Ctx, esc, isDone, isLive, isPending, kickoffDay, kickoffFull, kickoffTime, num, scoreText, shortId, signed, stamp, statusLabel } from "./util.js"
+import { Ctx, esc, isDone, isLive, isPending, kickoffClock, kickoffDay, kickoffFullFor, kickoffWhen, num, scoreText, shortId, signed, stamp, statusLabel } from "./util.js"
 import { evidence, notice, page } from "./layout.js"
 import { pointsChart } from "./charts.js"
 import type { Row, SeasonSummary } from "./types.js"
@@ -16,7 +16,7 @@ function matchRow(c: Ctx, m: Match, focus?: number): string {
   const bold = (id: number) => (focus === id ? ' class="me"' : "")
   const state = isDone(m) ? "" : `<span class="tag ${isLive(m) ? "live" : ""}">${statusLabel(m)}</span>`
   return `<li class="mrow" data-team="${h.slug} ${a.slug}" data-state="${isDone(m) ? "result" : "fixture"}" data-home="${h.slug}" data-away="${a.slug}">
-<span class="when">${kickoffDay(m.kickoff)}<br><small>${kickoffTime(m.kickoff)}</small></span>
+<span class="when">${kickoffWhen(m)}<br><small>${kickoffClock(m)}</small></span>
 <a class="teams" href="${c.matchHref(m)}"><span${bold(m.home)}>${esc(c.name(m.home))}</span><span class="score">${scoreText(m)}</span><span${bold(m.away)}>${esc(c.name(m.away))}</span></a>
 ${state}</li>`
 }
@@ -63,8 +63,8 @@ ${evidence(c, { what: "Completed league matches saved from the provider, summed 
 <p>Each club page compares its latest five completed league matches with the five before. ${ready === d.table.length ? "Every club has enough matches." : ready === 0 ? `No club has the ten completed matches the full comparison needs yet. Clubs show their latest five now and the comparison appears automatically after ten.` : `${ready} of ${d.table.length} clubs have the ten matches the full comparison needs.`}</p>
 <p><a href="${c.href("teams/")}">Choose a club</a></p></section>
 ${scorers.length ? `<section aria-labelledby="top"><h2 id="top">Top scorers</h2>
-<ol class="scorers">${scorers.map((p) => `<li><a href="${c.href(`player/${p.id}/`)}">${esc(p.name)}</a> <span class="muted">${esc(c.name(p.team))}</span> <strong>${num(p.scorer!.goals)}</strong><small> in ${num(p.scorer!.played, "?")} matches</small></li>`).join("")}</ol>
-${evidence(c, { what: "The provider's own top 10 scorers list. Only the top 10 are available.", snapshotIds: [lastOf(c, "scorers")?.id ?? ""], observed: lastOf(c, "scorers")?.fetched_at })}</section>` : ""}`
+<ol class="scorers">${scorers.map((p) => `<li><a href="${c.href(`player/${p.url_id}/`)}">${esc(p.name)}</a> <span class="muted">${esc(c.name(p.team))}</span> <strong>${num(p.scorer!.goals)}</strong><small> in ${num(p.scorer!.played, "?")} matches</small></li>`).join("")}</ol>
+${evidence(c, { what: "The provider's own top 10 scorers list. Only the top 10 are available.", snapshotIds: [lastOf(c, "scorers")?.id ?? ""], fetched: lastOf(c, "scorers")?.fetched_at })}</section>` : ""}`
   return page(c, { title: `${d.competition} ${d.season}`, path: "", nav: "overview", body })
 }
 
@@ -112,19 +112,20 @@ export function matchPage(c: Ctx, m: Match): string {
   <div class="sb"><a class="side" href="${c.href(`team/${h.slug}/`)}">${badge(h)}<span>${esc(h.name)}</span></a>
   <div class="big" aria-label="${done || isLive(m) ? `Score ${scoreText(m)}` : "Not yet played"}">${scoreText(m)}</div>
   <a class="side" href="${c.href(`team/${a.slug}/`)}">${badge(a)}<span>${esc(a.name)}</span></a></div>
-  <p><span class="tag ${isLive(m) ? "live" : ""}">${statusLabel(m)}</span> ${kickoffFull(m.kickoff)}${h.venue ? ` at ${esc(h.venue)}` : ""}</p>
+  <p><span class="tag ${isLive(m) ? "live" : ""}">${statusLabel(m)}</span> ${kickoffFullFor(m)}${h.venue ? ` at ${esc(h.venue)}` : ""}</p>
 </section>
+${m.status === "AWARDED" ? notice("info", "This result was awarded: it was decided without the match being played to a normal finish. The provider scores it and counts it in the table, and so do we.") : ""}
 ${isLive(m) ? notice("warn", "This match was in play when the data was last fetched. The score shown may be out of date.") : ""}
 ${m.status === "POSTPONED" || m.status === "SUSPENDED" || m.status === "CANCELLED" ? notice("warn", `This match is ${statusLabel(m).toLowerCase()}. No score is recorded.`) : ""}
 <section><h2>Match detail</h2>
-<dl class="facts"><dt>Full time</dt><dd>${done || isLive(m) ? scoreText(m) : "Not played"}</dd>
-<dt>Half time</dt><dd>${ht ? `${m.ht_h} - ${m.ht_a}` : done ? "Not supplied" : "Not played"}</dd>
+<dl class="facts"><dt>${done ? "Full time" : isLive(m) ? "Score when last fetched" : "Result"}</dt><dd>${done || isLive(m) ? scoreText(m) : "Not played"}</dd>
+<dt>Half time</dt><dd>${done ? (ht ? `${m.ht_h} - ${m.ht_a}` : "Not supplied") : isLive(m) ? "Shown once the match is over" : "Not played"}</dd>
 ${m.duration && m.duration !== "REGULAR" ? `<dt>Decided by</dt><dd>${esc(m.duration.replace(/_/g, " ").toLowerCase())}</dd>` : ""}</dl>
 ${notice("info", esc(d.coverage.match_detail))}
 ${evidence(c, { what: `Score and status for this match.`, snapshotIds: [m.snapshot], observed: m.observed_at })}</section>
 ${meet.length ? `<section><h2>Other meeting${meet.length > 1 ? "s" : ""} this season</h2><ul class="mlist">${meet.map((x) => matchRow(c, x)).join("")}</ul></section>` : ""}
 <section><h2>Either side of this match</h2><ul class="plain">${nav(m.home)}${nav(m.away)}</ul></section>`
-  return page(c, { title: `${c.name(m.home)} v ${c.name(m.away)}`, path: `match/${m.id}/`, nav: "matches", body })
+  return page(c, { title: `${c.name(m.home)} v ${c.name(m.away)}`, path: `match/${m.url_id}/`, nav: "matches", body })
 }
 
 export function teamsIndex(c: Ctx): string {
@@ -175,7 +176,7 @@ export function teamPage(c: Ctx, t: Team): string {
   const known = new Set<number>()
   const groups = order.map((g) => ({ g, ps: grp(g).filter((p) => !known.has(p.id)) })).map((x) => { x.ps.forEach((p) => known.add(p.id)); return x })
   const other = squad.filter((p) => !known.has(p.id))
-  const pl = (ps: Player[]) => ps.map((p) => `<tr><th scope="row"><a href="${c.href(`player/${p.id}/`)}">${esc(p.name)}</a></th><td>${esc(p.position ?? "Not supplied")}</td><td>${esc(p.nationality ?? "Not supplied")}</td><td>${p.dob ?? "Not supplied"}</td></tr>`).join("")
+  const pl = (ps: Player[]) => ps.map((p) => `<tr><th scope="row"><a href="${c.href(`player/${p.url_id}/`)}">${esc(p.name)}</a></th><td>${esc(p.position ?? "Not supplied")}</td><td>${esc(p.nationality ?? "Not supplied")}</td><td>${p.dob ?? "Not supplied"}</td></tr>`).join("")
   const form = d.per_team[String(t.id)]!.form
   const body = `<nav class="crumb" aria-label="Breadcrumb"><a href="${c.href("teams/")}">Clubs</a> / ${esc(t.name)}</nav>
 <section class="club"><div class="sb">${badge(t)}<div><h1>${esc(t.name)}</h1>
@@ -193,7 +194,7 @@ ${historySection(c, t)}
 ${squad.length ? `<p class="muted">Squad list as last seen ${stamp(squad[0]!.seen ?? d.built_at)}. Provider squad lists can lag real transfers, and shirt numbers and appearances are not available.</p>
 <div class="scroll"><table class="num"><caption class="sr">${esc(t.name)} squad</caption><thead><tr><th scope="col" class="left">Player</th><th scope="col" class="left">Position</th><th scope="col" class="left">Nationality</th><th scope="col" class="left">Born</th></tr></thead>
 <tbody>${groups.map((x) => pl(x.ps)).join("")}${pl(other)}</tbody></table></div>` : notice("info", "No squad list in the saved data for this club.")}
-${evidence(c, { what: "Squad list as provided.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], observed: lastOf(c, "teams")?.fetched_at })}</section>`
+${evidence(c, { what: "Squad list as provided.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], fetched: lastOf(c, "teams")?.fetched_at })}</section>`
   return page(c, { title: t.name, path: `team/${t.slug}/`, nav: "teams", body })
 }
 
@@ -202,7 +203,7 @@ export function playersIndex(c: Ctx): string {
   const teams = [...d.teams].sort((a, b) => a.name.localeCompare(b.name))
   const pos = [...new Set(d.players.map((p) => p.position).filter(Boolean))].sort()
   const rows = d.players.map((p) => `<tr data-team="${c.team(p.team).slug}" data-pos="${esc(p.position ?? "")}" data-name="${esc(p.name.toLowerCase())}">
-<th scope="row" data-sort="${esc(p.name)}"><a href="${c.href(`player/${p.id}/`)}">${esc(p.name)}</a></th><td>${c.teamLink(p.team)}</td><td>${esc(p.position ?? "Not supplied")}</td><td>${esc(p.nationality ?? "Not supplied")}</td><td data-sort="${p.dob ?? ""}">${p.dob ?? "Not supplied"}</td><td data-sort="${p.scorer?.goals ?? -1}">${p.scorer ? num(p.scorer.goals) : ""}</td></tr>`).join("")
+<th scope="row" data-sort="${esc(p.name)}"><a href="${c.href(`player/${p.url_id}/`)}">${esc(p.name)}</a></th><td>${c.teamLink(p.team)}</td><td>${esc(p.position ?? "Not supplied")}</td><td>${esc(p.nationality ?? "Not supplied")}</td><td data-sort="${p.dob ?? ""}">${p.dob ?? "Not supplied"}</td><td data-sort="${p.scorer?.goals ?? -1}">${p.scorer ? num(p.scorer.goals) : ""}</td></tr>`).join("")
   const th = (k: string, l: string, tip = "") => `<th scope="col" class="left" data-key="${k}"><button type="button" title="${esc(tip || l)}">${l}</button></th>`
   const body = `<h1>Players</h1>
 <p>${d.players.length} players in current squad lists. ${esc(d.coverage.players)}</p>
@@ -215,7 +216,7 @@ export function playersIndex(c: Ctx): string {
 <thead><tr>${th("name", "Player")}${th("club", "Club")}${th("pos", "Position")}${th("nat", "Nationality")}${th("dob", "Born")}${th("goals", "League goals", "League goals, only for the provider's top 10 scorers")}</tr></thead>
 <tbody>${rows}</tbody></table></div>
 <p id="pempty" class="notice info" hidden>No players fit those filters.</p>
-${evidence(c, { what: "Squad lists and the top 10 scorers list as provided.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], observed: lastOf(c, "teams")?.fetched_at })}`
+${evidence(c, { what: "Squad lists and the top 10 scorers list as provided.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], fetched: lastOf(c, "teams")?.fetched_at })}`
   return page(c, { title: "Players", path: "players/", nav: "players", body })
 }
 
@@ -226,14 +227,14 @@ export function playerPage(c: Ctx, p: Player): string {
   const body = `<nav class="crumb" aria-label="Breadcrumb"><a href="${c.href("players/")}">Players</a> / ${esc(p.name)}</nav>
 <section class="club"><h1>${esc(p.name)}</h1><p class="muted">${c.teamLink(p.team)}</p>
 <dl class="facts"><dt>Position</dt><dd>${esc(p.position ?? "Not supplied")}</dd><dt>Nationality</dt><dd>${esc(p.nationality ?? "Not supplied")}</dd><dt>Born</dt><dd>${p.dob ?? "Not supplied"}</dd></dl>
-${evidence(c, { what: "Name, position, nationality and date of birth from the provider's squad list.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], observed: p.seen })}</section>
+${evidence(c, { what: "Name, position, nationality and date of birth from the provider's squad list.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], fetched: p.seen })}</section>
 <section><h2>${esc(d.season)} league record</h2>
 ${s ? `<dl class="kpis big"><div><dt>Top scorer rank</dt><dd>${s.rank}</dd></div><div><dt>Goals</dt><dd>${num(s.goals)}</dd></div><div><dt>Matches played</dt><dd>${num(s.played, "?")}</dd></div><div><dt>Assists</dt><dd>${num(s.assists)}</dd></div><div><dt>Penalties</dt><dd>${num(s.penalties)}</dd></div></dl>
-${evidence(c, { what: "From the provider's top 10 scorers list. A blank means the provider did not supply it, not zero.", snapshotIds: [s.snapshot], observed: s.observed_at })}`
+${evidence(c, { what: "From the provider's top 10 scorers list. A blank means the provider did not supply it, not zero.", snapshotIds: [s.snapshot], fetched: s.fetched_at })}`
  : notice("info", `${esc(p.name)} is not in the provider's top 10 scorers, and this data source does not give appearances, minutes or goals for other players. A missing figure here means not available, not zero.`)}
 </section>
 <section><h2>Match by match and career history</h2>${notice("info", `${esc(d.coverage.history)} Appearances, minutes and earlier seasons are not available from the current free sources.`)}</section>`
-  return page(c, { title: p.name, path: `player/${p.id}/`, nav: "players", body })
+  return page(c, { title: p.name, path: `player/${p.url_id}/`, nav: "players", body })
 }
 
 export function statusPage(c: Ctx): string {
@@ -243,10 +244,10 @@ export function statusPage(c: Ctx): string {
     return `<tr><th scope="row">${e}</th><td>${s ? stamp(s.fetched_at) : "Not fetched"}</td><td>${s ? `<code>${shortId(s.id)}</code>` : ""}</td></tr>`
   }).join("")
   const body = `<h1>Data status</h1>
-<section><h2>Freshness</h2><p>Site built <time datetime="${d.built_at}">${stamp(d.built_at)}</time> with transformation version ${esc(d.transform_version)}.</p>
+<section><h2>Freshness</h2><p>Match data last fetched <time datetime="${d.data_as_of}">${stamp(d.data_as_of)}</time>. Site built <time datetime="${d.built_at}">${stamp(d.built_at)}</time> with transformation version ${esc(d.transform_version)}.</p>
 <div class="scroll"><table><caption class="sr">Latest saved copy of each dataset</caption><thead><tr><th scope="col" class="left">Dataset</th><th scope="col" class="left">Fetched</th><th scope="col" class="left">Saved copy</th></tr></thead><tbody>${ep}</tbody></table></div>
-<p class="muted">The site is rebuilt on a schedule. If the last fetch is more than 36 hours old, every page shows a warning.</p></section>
-<section><h2>Fetch problems</h2>${d.failures.length ? `<ul>${d.failures.map((f) => `<li>${esc(f.endpoint)} returned HTTP ${f.http_status} at ${stamp(f.fetched_at)}. ${f.recovered ? "A later fetch succeeded." : "No successful fetch since; the previous good data stays in use."}</li>`).join("")}</ul>` : "<p>No failed fetches recorded.</p>"}</section>
+<p class="muted">The site is rebuilt on a schedule. If the match data was last fetched more than 36 hours ago, every page shows a warning, whatever time the site was built.</p></section>
+<section><h2>Fetch problems</h2>${d.failures.length ? `<ul>${d.failures.map((f) => `<li>${esc(f.params)} ${f.http_status === 0 ? "could not be reached" : `returned HTTP ${f.http_status}`} at ${stamp(f.fetched_at)}. ${f.recovered ? "A later fetch succeeded." : "No successful fetch since; the previous good data stays in use."}</li>`).join("")}</ul>` : "<p>No failed fetches recorded.</p>"}</section>
 <section><h2>Checks run before publishing</h2>
 ${d.validation.errors.length ? notice("warn", d.validation.errors.map(esc).join("<br>")) : notice("info", "All checks passed.")}
 <ul>${d.validation.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></section>
@@ -274,10 +275,12 @@ function historySection(c: Ctx, t: Team): string {
   const cur = d.season
   const hist = pt.history.filter((h) => h.season !== cur)
   const chart = pt.series[cur]?.length ? pointsChart(pt.series, cur, `${c.name(t.id)}: points after each league match, ${cur} against earlier seasons`) : ""
+  const curAdj = pt.history.find((h) => h.season === cur)?.adjustment ?? 0
   const rows = pt.history.map((h) => `<tr><th scope="row"><a href="${c.href(`season/${h.season}/`)}">${esc(h.season)}</a></th><td>${h.position}</td><td>${h.points}</td><td>${h.played}</td><td>${signed(h.gd)}</td></tr>`).join("")
   const others = d.teams.filter((o) => o.current && o.id !== t.id).sort((a, b) => a.name.localeCompare(b.name))
   return `<section aria-labelledby="hist"><h2 id="hist">How this compares with earlier seasons</h2>
 ${chart}
+${curAdj ? notice("info", `The chart plots points won in matches. The table total also includes a points adjustment of ${signed(curAdj)} (see the overview), so the chart line ends ${Math.abs(curAdj)} ${curAdj < 0 ? "higher" : "lower"} than the table.`) : ""}
 ${hist.length ? `<div class="scroll"><table class="num"><caption class="sr">${esc(t.name)} league finish by season</caption><thead><tr><th scope="col" class="left">Season</th><th scope="col">Position</th><th scope="col">Pts</th><th scope="col">P</th><th scope="col">GD</th></tr></thead><tbody>${rows}</tbody></table></div>
 <p class="muted">Earlier seasons are complete final tables. ${esc(cur)} is the table so far, so its points are not comparable with a full season.</p>` : notice("info", "No earlier Championship seasons are stored for this club.")}
 ${evidence(c, { what: "League results for each stored season, summed per club.", calc: d.calc.points, snapshotIds: [...matchSnaps(c), ...d.seasons.flatMap((x) => x.snapshots)] })}
@@ -294,7 +297,7 @@ function tableHtml(c: Ctx, rows: Row[], caption: string): string {
 export function seasonsIndex(c: Ctx): string {
   const d = c.d
   const li = (label: string, note: string) => `<li><a class="card" href="${c.href(`season/${label}/`)}"><span><strong>${esc(label)}</strong><small>${note}</small></span></a></li>`
-  const items = [li(d.season, "Current season, table so far"), ...d.seasons.map((s) => li(s.label, s.complete ? `Final table, champions ${esc(c.name(s.table[0]!.team))}` : "Incomplete"))].join("")
+  const items = [li(d.season, "Current season, table so far"), ...d.seasons.map((s) => li(s.label, s.complete ? (s.reconciled ? `Final table, champions ${esc(c.name(s.table[0]!.team))}` : "Complete, not checked against the provider table") : "Incomplete"))].join("")
   return page(c, { title: "Seasons", path: "seasons/", nav: "seasons", body: `<h1>Seasons</h1><p>Full league results for each season the data source makes available for free. Older seasons are not available.</p><ul class="cards">${items}</ul>` })
 }
 
@@ -309,6 +312,7 @@ export function seasonPage(c: Ctx, label: string): string {
   const poHtml = po.length ? `<section><h2>Play-offs</h2><ul class="mlist">${po.map((m) => `<li class="mrow"><span class="when">${kickoffDay(m.kickoff)}<br><small>${esc(stageName[m.stage] ?? m.stage)}</small></span><span class="teams"><span>${esc(c.name(m.home))}</span><span class="score">${m.hg === null ? "v" : `${m.hg} - ${m.ag}`}</span><span>${esc(c.name(m.away))}</span></span>${m.duration && m.duration !== "REGULAR" ? '<span class="tag">Extra time</span>' : ""}</li>`).join("")}</ul>
 ${notice("info", "Play-off scores are as the provider supplies them. Where a match went to extra time the provider's figures can be inconsistent, and penalty shootout results are not given, so the winner of a tie is not always visible here.")}</section>` : ""
   const body = `<nav class="crumb" aria-label="Breadcrumb"><a href="${c.href("seasons/")}">Seasons</a> / ${esc(label)}</nav><h1>${esc(d.competition)} ${esc(label)}</h1>
+${!isCur && s && !s.reconciled ? notice("warn", "No provider table is saved for this season, so this table has not been checked against the provider's final table. Treat it with caution.") : ""}
 ${isCur ? notice("info", `Season in progress. This is the <a href="${c.href("")}">live table</a>.`) : ""}
 ${tableHtml(c, rows, `${label} league table`)}
 <p class="legend">${esc(d.calc.order!)} ${isCur ? "" : "Clubs shown without a link are not in the league this season."}</p>

@@ -59,7 +59,8 @@ class Core(Base):
     def test_failed_http_snapshot_is_kept_but_not_parsed(self):
         self.ingest(b'{"message":"rate limited"}', "2026-08-02T00:00:00Z", status=429)
         db = self.build()
-        self.assertEqual(db.execute("select count(*) from snapshot").fetchone()[0], 1)
+        self.assertEqual(db.execute("select count(*) from snapshot").fetchone()[0], 0)      # a failure is never a saved good copy
+        self.assertEqual(db.execute("select count(*), http_status from fetch_log").fetchone(), (1, 429))
         self.assertEqual(db.execute("select count(*) from match").fetchone()[0], 0)
 
     def test_corrupt_snapshot_is_refused(self):
@@ -91,9 +92,6 @@ class Standings(unittest.TestCase):
             standings.table([1, 2], [(1, 2, None, None)])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class Validate(unittest.TestCase):
     def test_unexplained_points_gap_is_an_error_and_adjustment_clears_it(self):
@@ -106,12 +104,12 @@ class Validate(unittest.TestCase):
         snapshots.save("football-data.org", "standings", "y", json.dumps(st).encode(), 200, "2026-08-09T00:01:00Z", root)
         none = d / "none.csv"
         replay.build(d / "a.db", root, none)
-        errors, _ = validate.run(d / "a.db")
+        errors, _ = validate.run(d / "a.db", league_teams=2)
         self.assertTrue(any("missing adjustment" in e for e in errors))
         adj = d / "adj.csv"
         adj.write_text('season,team_tla,points,reason,evidence_url\n2026-27,T01,-3,test,http://example.test\n')
         replay.build(d / "b.db", root, adj)
-        self.assertEqual(validate.run(d / "b.db")[0], [])
+        self.assertEqual(validate.run(d / "b.db", league_teams=2)[0], [])
 
 
 class Change(unittest.TestCase):
@@ -161,7 +159,8 @@ class Ingest(IngestBase):
         with self.assertRaises(KeyboardInterrupt):
             self.cli.ingest(fetch=flaky, sleep=lambda s: None)
         self.assertEqual(len(snapshots.entries(snapshots.ROOT)), 2)       # first two survived
-        self.cli.ingest(fetch=lambda p, q, t: (200, json.dumps({"path": p}).encode()), sleep=lambda s: None)
+        same = lambda p, q, t: (200, json.dumps({"path": p}).encode())
+        self.cli._ingest_current(self.cli._Run(same, lambda s: None))
         files = list((snapshots.ROOT / "football-data.org").rglob("*.json.gz"))
         self.assertEqual(len(files), 4)                                    # same bodies, same ids: no duplicate files
 
@@ -180,8 +179,22 @@ class Ingest(IngestBase):
             calls.append(path); return 429, b'{"message":"slow down"}'
         rc = self.cli.ingest(fetch=always429, sleep=lambda s: None)
         self.assertEqual(rc, 1)
-        self.assertLessEqual(len(calls), 12)
+        self.assertLessEqual(len(calls), 20)
         self.assertEqual(calls.count("/competitions/ELC/matches"), 3)    # first try plus two retries
+
+
+    def test_network_error_is_saved_as_failure_and_retried(self):
+        import urllib.error
+        from atlas import fdorg
+        def opener(req, timeout):
+            raise urllib.error.URLError("dns")
+        status, body = fdorg.fetch("/x", {}, "t", opener=opener)
+        self.assertEqual(status, 0)
+        calls = []
+        def down(path, params, token):
+            calls.append(path); return fdorg.fetch(path, params, token, opener=opener)
+        self.assertEqual(self.cli.ingest(fetch=down, sleep=lambda s: None), 1)
+        self.assertEqual(calls.count("/competitions/ELC/matches"), 3)
 
 
 class Backfill(IngestBase):
@@ -227,3 +240,55 @@ class Identity(Base):
         snapshots.save("football-data.org", "matches", "x", json.dumps(rs).encode(), 200, "2026-09-03T00:00:00Z", self.root)
         db = self.build()
         self.assertEqual(db.execute("select count(*), status, kickoff_utc, home_goals from match").fetchone(), (1, "FINISHED", "2026-09-01T19:45:00Z", 2))
+
+
+class Export(Base):
+    def ingest(self, b, at, status=200):      # realistic params string for the current-season request
+        snapshots.save("football-data.org", "matches", "/competitions/ELC/matches", b, status, at, self.root)
+
+    def test_awarded_counts_in_table_and_postponed_does_not(self):
+        from atlas import export
+        self.ingest(body([(1, 2, 3, 0, "AWARDED", "2026-08-08T16:00:00Z"), (2, 1, None, None, "POSTPONED", "2026-08-09T16:00:00Z")]), "2026-08-10T00:00:00Z")
+        db = self.build(); path = self.d / "a.db"
+        d = export.export(path)
+        by = {r["team"]: r for r in d["table"]}
+        self.assertEqual({t: r["points"] for t, r in by.items()}, {1: 3, 2: 0})
+        self.assertEqual(sum(r["played"] for r in d["table"]), 2)         # the postponed match is not played
+
+    def test_chart_series_ignores_adjustment_and_history_reports_it(self):
+        from atlas import export
+        self.ingest(body([(1, 2, 2, 0, "FINISHED", "2026-08-08T16:00:00Z")]), "2026-08-10T00:00:00Z")
+        adj = self.d / "adj.csv"; adj.write_text('season,team_tla,points,reason,evidence_url\n2026-27,T01,-3,test,http://example.test\n')
+        replay.build(self.d / "a.db", self.root, adj)
+        d = export.export(self.d / "a.db")
+        t1 = next(t["id"] for t in d["teams"] if t["tla"] == "T01")
+        self.assertEqual(d["per_team"][t1]["series"]["2026-27"], [3])      # results only
+        self.assertEqual(d["per_team"][t1]["history"][0]["adjustment"], -3)
+        self.assertEqual(next(r["points"] for r in d["table"] if r["team"] == t1), 0)   # 3 from the win, minus the 3 deducted
+
+    def test_recovery_is_per_request_not_per_endpoint(self):
+        from atlas import export
+        self.ingest(body([(1, 2, 1, 0, "FINISHED", "2026-08-08T16:00:00Z")]), "2026-08-10T00:00:00Z")
+        snapshots.save("football-data.org", "matches", "/competitions/ELC/matches?season=2025", b'{"message":"slow"}', 429, "2026-08-10T00:05:00Z", self.root)
+        self.ingest(body([(1, 2, 1, 0, "FINISHED", "2026-08-08T16:00:00Z")]), "2026-08-11T00:00:00Z")   # later current-season success
+        self.build()
+        f = export.export(self.d / "a.db")["failures"]
+        self.assertEqual((len(f), f[0]["recovered"]), (1, 0))                  # the 2025 request is still failing
+
+    def test_data_age_is_last_good_current_matches_fetch_not_other_endpoints(self):
+        from atlas import export
+        self.ingest(body([(1, 2, 1, 0, "FINISHED", "2026-08-08T16:00:00Z")]), "2026-08-10T00:00:00Z")
+        snapshots.save("football-data.org", "scorers", "/competitions/ELC/scorers", b'{"competition":{"id":2016},"filters":{"season":"2026"},"scorers":[]}',
+                       200, "2026-08-20T00:00:00Z", self.root)
+        self.build()
+        self.assertEqual(export.export(self.d / "a.db")["data_as_of"], "2026-08-10T00:00:00Z")
+
+    def test_urls_use_provider_ids_not_internal_ids(self):
+        from atlas import export
+        self.ingest(body([(1, 2, 1, 0, "FINISHED", "2026-08-08T16:00:00Z")]), "2026-08-10T00:00:00Z")
+        self.build()
+        self.assertEqual(export.export(self.d / "a.db")["matches"][0]["url_id"], "101")   # provider match id, not row 1
+
+
+if __name__ == "__main__":
+    unittest.main()

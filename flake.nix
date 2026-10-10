@@ -16,6 +16,16 @@
           PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
           PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
           PLAYWRIGHT_DRIVER_VERSION = pkgs.playwright-driver.version;
+          # Fail loudly, not at browser launch, if the npm package and the Nix browser drift apart.
+          shellHook = ''
+            if [ -f site/node_modules/playwright/package.json ]; then
+              have=$(node -p "require('./site/node_modules/playwright/package.json').version")
+              if [ "$have" != "$PLAYWRIGHT_DRIVER_VERSION" ]; then
+                echo "WARNING: site playwright $have does not match the Nix browser build $PLAYWRIGHT_DRIVER_VERSION." >&2
+                echo "         Set playwright to exactly $PLAYWRIGHT_DRIVER_VERSION in site/package.json and run npm install." >&2
+              fi
+            fi
+          '';
         };
       });
     };

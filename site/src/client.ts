@@ -9,11 +9,11 @@ const setParam = (k: string, v: string, empty = "") => {
 }
 
 // Stale warning, judged against the real clock when the page is opened.
-const built = Date.parse(root.dataset.built ?? "")
+const built = Date.parse(root.dataset.fetched ?? "")   // age of the data, not of the build
 const stale = document.getElementById("stale")
 if (stale && Number.isFinite(built) && Date.now() - built > 36 * 3600e3) {
   const h = Math.round((Date.now() - built) / 3600e3)
-  stale.textContent = `This data was last built ${h >= 48 ? `${Math.round(h / 24)} days` : `${h} hours`} ago and may be out of date.`
+  stale.textContent = `This data was last fetched ${h >= 48 ? `${Math.round(h / 24)} days` : `${h} hours`} ago and may be out of date.`
   stale.hidden = false
 }
 

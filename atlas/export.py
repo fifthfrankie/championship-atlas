@@ -5,8 +5,9 @@ from . import replay, validate
 
 LIVE = {"IN_PLAY", "PAUSED"}
 PENDING = {"SCHEDULED", "TIMED"}
-OFF = {"POSTPONED", "SUSPENDED", "CANCELLED", "AWARDED"}
-KNOWN = {"FINISHED"} | LIVE | PENDING | OFF
+OFF = {"POSTPONED", "SUSPENDED", "CANCELLED"}
+COMPLETED = set(validate.COMPLETED)
+KNOWN = COMPLETED | LIVE | PENDING | OFF
 WINDOW = 5
 
 CALC = {
@@ -66,7 +67,7 @@ def export(db_path):
         matches.append(dict(id=r["id"], stage=r["code"], kind=r["kind"], matchday=r["matchday"], kickoff=r["kickoff_utc"],
                             status=r["status"], home=r["home_team_id"], away=r["away_team_id"], hg=r["home_goals"],
                             ag=r["away_goals"], duration=r["score_duration"], ht_h=r["ht_home_goals"], ht_a=r["ht_away_goals"], observed_at=r["observed_at"], snapshot=r["snapshot_id"]))
-    league_done = [m for m in matches if m["kind"] == "league" and m["status"] == "FINISHED"]
+    league_done = [m for m in matches if m["kind"] == "league" and m["status"] in COMPLETED]
     table = []
     for pos, row in enumerate(validate.league_table(db, sid), 1):
         t = teams[row.team_id]
@@ -86,10 +87,10 @@ def export(db_path):
     for hid, hlabel in db.execute("SELECT id, label FROM season ORDER BY label DESC"):
         lm = [dict(id=r["id"], home=r["home_team_id"], away=r["away_team_id"], hg=r["home_goals"], ag=r["away_goals"], k=r["kickoff_utc"])
               for r in db.execute("""SELECT m.* FROM match m JOIN stage st ON st.id=m.stage_id
-                  WHERE st.season_id=? AND st.kind='league' AND m.status='FINISHED' ORDER BY m.kickoff_utc, m.id""", (hid,))]
+                  WHERE st.season_id=? AND st.kind='league' AND m.status IN ('FINISHED','AWARDED') ORDER BY m.kickoff_utc, m.id""", (hid,))]
         rows = validate.league_table(db, hid)
         for pos, row in enumerate(rows, 1):
-            history.setdefault(row.team_id, []).append(dict(season=hlabel, position=pos, points=row.points, played=row.played, gd=row.gd))
+            history.setdefault(row.team_id, []).append(dict(season=hlabel, position=pos, points=row.points, played=row.played, gd=row.gd, adjustment=row.adjustment))
         for t in {m["home"] for m in lm} | {m["away"] for m in lm}:
             cum, pts = [], 0
             for m in lm:
@@ -98,9 +99,9 @@ def export(db_path):
                     pts += _pts(f, a); cum.append(pts)
             series.setdefault(t, {})[hlabel] = cum
         complete = db.execute("""SELECT COUNT(*) FROM match m JOIN stage st ON st.id=m.stage_id WHERE st.season_id=? AND st.kind='league'
-                                 AND m.status!='FINISHED'""", (hid,)).fetchone()[0] == 0
+                                 AND m.status NOT IN ('FINISHED','AWARDED')""", (hid,)).fetchone()[0] == 0
         if hid != sid:
-            seasons.append(dict(label=hlabel, complete=complete, table=[dict(position=i, team=r.team_id, played=r.played, won=r.won, drawn=r.drawn,
+            seasons.append(dict(label=hlabel, complete=complete, reconciled=db.execute("SELECT COUNT(*) FROM source_standing WHERE season_id=?", (hid,)).fetchone()[0] > 0, table=[dict(position=i, team=r.team_id, played=r.played, won=r.won, drawn=r.drawn,
                 lost=r.lost, gf=r.gf, ga=r.ga, gd=r.gd, points=r.points, adjustment=r.adjustment, tied=r.tied) for i, r in enumerate(rows, 1)],
                 playoff=[dict(id=r["id"], stage=r["code"], home=r["home_team_id"], away=r["away_team_id"], hg=r["home_goals"], ag=r["away_goals"],
                               duration=r["score_duration"], kickoff=r["kickoff_utc"]) for r in db.execute(
@@ -113,26 +114,37 @@ def export(db_path):
     # every league meeting between two clubs across the stored seasons, for comparison pages
     h2h = [dict(season=r["label"], kickoff=r["kickoff_utc"], home=r["home_team_id"], away=r["away_team_id"], hg=r["home_goals"], ag=r["away_goals"])
            for r in db.execute("""SELECT m.*, s.label FROM match m JOIN stage st ON st.id=m.stage_id JOIN season s ON s.id=st.season_id
-               WHERE st.kind='league' AND m.status='FINISHED' ORDER BY m.kickoff_utc, m.id""")]
+               WHERE st.kind='league' AND m.status IN ('FINISHED','AWARDED') ORDER BY m.kickoff_utc, m.id""")]
     players = {}
-    for r in db.execute("""SELECT p.*, sm.team_id, sm.observed_at FROM player p JOIN squad_membership sm ON sm.player_id=p.id
+    for r in db.execute("""SELECT p.*, sm.team_id, sm.fetched_at FROM player p JOIN squad_membership sm ON sm.player_id=p.id
                            WHERE sm.season_id=? ORDER BY p.name, p.id""", (sid,)):
         players[r["id"]] = dict(id=r["id"], name=r["name"], dob=r["date_of_birth"], nationality=r["nationality"],
-                                position=r["position"], team=r["team_id"], seen=r["observed_at"], scorer=None)
+                                position=r["position"], team=r["team_id"], seen=r["fetched_at"], scorer=None)
     for r in db.execute("SELECT * FROM scorer WHERE season_id=? ORDER BY rank", (sid,)):
         players.setdefault(r["player_id"], dict(id=r["player_id"], name=db.execute("SELECT name FROM player WHERE id=?", (r["player_id"],)).fetchone()[0],
                                                 dob=None, nationality=None, position=None, team=r["team_id"], seen=None, scorer=None))
         players[r["player_id"]]["scorer"] = dict(rank=r["rank"], played=r["played"], goals=r["goals"], assists=r["assists"],
-                                                  penalties=r["penalties"], observed_at=r["observed_at"], snapshot=r["snapshot_id"])
+                                                  penalties=r["penalties"], fetched_at=r["fetched_at"], snapshot=r["snapshot_id"])
+    keys = {(r[0], r[1]): r[2] for r in db.execute("SELECT entity, internal_id, source_key FROM source_id WHERE entity IN ('match','player')")}
+    for m in matches:
+        m["url_id"] = keys[("match", m["id"])]
+    for p in players.values():
+        p["url_id"] = keys[("player", p["id"])]
     snaps = [dict(r) for r in db.execute(
         "SELECT id, endpoint, fetched_at FROM snapshot WHERE http_status=200 ORDER BY fetched_at, id")]
     failures = [dict(r) for r in db.execute(
-        """SELECT f.endpoint, f.http_status, f.fetched_at,
-                  EXISTS (SELECT 1 FROM snapshot g WHERE g.http_status=200 AND g.endpoint=f.endpoint AND g.fetched_at>f.fetched_at) AS recovered
-           FROM snapshot f WHERE f.http_status!=200 ORDER BY f.fetched_at DESC LIMIT 10""")]
+        """SELECT f.endpoint, f.params, f.http_status, f.fetched_at,
+                  EXISTS (SELECT 1 FROM fetch_log g WHERE g.http_status=200 AND g.endpoint=f.endpoint AND g.params=f.params
+                          AND g.fetched_at>f.fetched_at) AS recovered
+           FROM fetch_log f WHERE f.http_status!=200 ORDER BY f.fetched_at DESC, f.seq DESC LIMIT 10""")]
+    # When the current season's match list was last fetched successfully. This, not the build time, is the data's age.
+    data_as_of = db.execute("""SELECT MAX(fetched_at) FROM fetch_log WHERE http_status=200 AND endpoint='matches'
+                               AND params NOT LIKE '%season=%'""").fetchone()[0]
+    if not data_as_of:
+        errors.append("no successful fetch of the current season's matches")
     meta = {r["key"]: r["value"] for r in db.execute("SELECT * FROM meta")}
     return dict(
-        built_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        built_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), data_as_of=data_as_of,
         transform_version=meta["transform_version"], season=season["label"], competition=season["name"],
         source="football-data.org", snapshots=snaps, failures=failures, validation=dict(errors=errors, notes=notes), calc=CALC,
         teams=list(teams.values()), seasons=seasons, h2h=h2h, matches=matches, table=table, adjustments=adjustments, per_team=per_team,

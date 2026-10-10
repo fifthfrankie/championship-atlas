@@ -50,7 +50,7 @@ Read `BRIEF.md` first, then this file. A fresh agent can resume from here alone.
 - Scheduled workflows pause after 60 days without repository activity and a paused schedule cannot re-enable itself. Owner action: push any commit or run `gh workflow enable publish.yml` at least every 8 weeks.
 
 ## QA review
-One independent read-only review ran at the end of checkpoint 1 (11 findings). Each was checked against the code or built output before fixing. All 11 were real; status:
+One independent read-only review ran at the end of checkpoint 1 (12 findings listed). Each was checked against the code or built output before fixing. All were real; status:
 
 | # | Finding | Fix | Evidence |
 |---|---------|-----|----------|

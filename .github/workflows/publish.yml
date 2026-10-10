@@ -1,0 +1,110 @@
+# Scheduled ingestion, build and GitHub Pages deployment. PREPARED, NOT ENABLED.
+# Nothing runs until the owner pushes the repository AND sets the repository variable PUBLISH_ENABLED=true,
+# which they should only do after confirming the data provider's terms (see STATUS.md, Blockers).
+name: Refresh and publish
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"      # four runs a day, about 10 provider requests each, far below the 10 per minute limit
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false      # runs queue, they never overlap
+
+jobs:
+  build:
+    if: ${{ vars.PUBLISH_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15            # runtime cap
+    permissions:
+      contents: read
+      actions: write               # lets the keepalive step re-enable this schedule
+    outputs:
+      ingest_ok: ${{ steps.ingest.outcome == 'success' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - uses: actions/cache/restore@v6          # saved copies from earlier runs (not kept in git, see README)
+        with:
+          path: data/snapshots
+          key: snapshots-${{ github.run_id }}
+          restore-keys: snapshots-
+      - run: npm ci --prefix site
+      - run: make check
+      - name: Ingest
+        id: ingest
+        continue-on-error: true                  # a provider outage must not stop us republishing cached data
+        env:
+          KEY: ${{ secrets.FOOTBALL_DATA_ORG_KEY }}
+        run: |
+          printf 'FOOTBALL_DATA_ORG_KEY="%s"\n' "$KEY" > .env
+          make ingest
+          rm -f .env
+      - uses: actions/cache/save@v6
+        if: always()
+        with:
+          path: data/snapshots
+          key: snapshots-${{ github.run_id }}
+      - name: Build and browser journey (site root)
+        run: |
+          make build
+          cd site
+          npx playwright install --with-deps chromium
+          npx tsx e2e/journey.ts
+      - name: Build for Pages (repository path)
+        env:
+          SITE_BASE: /${{ github.event.repository.name }}/
+          ATLAS_OUT: ../build/site-pages
+        run: cd site && npx tsx src/build.ts
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: build/site-pages
+      - name: Keep the schedule alive (GitHub pauses schedules after 60 days without repository activity)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow enable publish.yml --repo "${{ github.repository }}" || true
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+  report:
+    needs: [build, deploy]
+    if: ${{ always() && vars.PUBLISH_ENABLED == 'true' && (needs.build.result != 'success' || needs.deploy.result != 'success' || needs.build.outputs.ingest_ok != 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Open one issue per outage, and fail so GitHub emails the owner
+        run: |
+          title="Scheduled refresh failed"
+          if [ -z "$(gh issue list --repo "${{ github.repository }}" --state open --search "$title in:title" --json number --jq '.[0].number')" ]; then
+            gh issue create --repo "${{ github.repository }}" --title "$title" \
+              --body "Run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} did not complete cleanly (ingest, build or deploy). The previous site stays live and shows a stale warning after 36 hours."
+          fi
+          exit 1

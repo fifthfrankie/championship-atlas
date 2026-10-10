@@ -19,19 +19,30 @@ export function write(dir: string, rel: string, content: string) {
   writeFileSync(f, content)
 }
 
+export function plan(c: Ctx): [string, () => string][] {
+  const d = c.d
+  const cur = d.teams.filter((t) => t.current)
+  const out: [string, () => string][] = [
+    ["", () => P.overview(c)], ["matches/", () => P.matchesIndex(c)], ["teams/", () => P.teamsIndex(c)], ["players/", () => P.playersIndex(c)],
+    ["seasons/", () => P.seasonsIndex(c)], ["compare/", () => P.compareIndex(c)], ["status/", () => P.statusPage(c)], ["404.html", () => P.notFound(c)],
+    [`season/${d.season}/`, () => P.seasonPage(c, d.season)],
+  ]
+  for (const s of d.seasons) out.push([`season/${s.label}/`, () => P.seasonPage(c, s.label)])
+  for (const m of d.matches) out.push([`match/${m.id}/`, () => P.matchPage(c, m)])
+  for (const t of cur) out.push([`team/${t.slug}/`, () => P.teamPage(c, t)])
+  for (const p of d.players) out.push([`player/${p.id}/`, () => P.playerPage(c, p)])
+  for (let i = 0; i < cur.length; i++) for (let j = i + 1; j < cur.length; j++) {
+    const [a, b] = [cur[i]!, cur[j]!]
+    out.push([`compare/${P.pairSlug(a, b)}/`, () => P.comparePage(c, a, b)])
+  }
+  return out
+}
+
 export function generate(d: Data, dir: string, baseUrl: string) {
   const c = new Ctx(d, baseUrl)
-  write(dir, "", P.overview(c))
-  write(dir, "matches/", P.matchesIndex(c))
-  for (const m of d.matches) write(dir, `match/${m.id}/`, P.matchPage(c, m))
-  write(dir, "teams/", P.teamsIndex(c))
-  for (const t of d.teams) write(dir, `team/${t.slug}/`, P.teamPage(c, t))
-  write(dir, "players/", P.playersIndex(c))
-  for (const p of d.players) write(dir, `player/${p.id}/`, P.playerPage(c, p))
-  write(dir, "status/", P.statusPage(c))
-  write(dir, "404.html", P.notFound(c))
+  for (const [path, render] of plan(c)) write(dir, path, render())
   const index = [
-    ...d.teams.map((t) => ({ n: t.name, s: t.short_name ?? "", k: "Club", u: `team/${t.slug}/` })),
+    ...d.teams.filter((t) => t.current).map((t) => ({ n: t.name, s: t.short_name ?? "", k: "Club", u: `team/${t.slug}/` })),
     ...d.players.map((p) => ({ n: p.name, s: c.name(p.team), k: "Player", u: `player/${p.id}/` })),
   ]
   write(dir, "search-index.json", JSON.stringify(index))
@@ -51,7 +62,7 @@ export function check(d: Data, dir: string, baseUrl: string): string[] {
   if (d.validation.errors.length) bad.push(`data validation failed: ${d.validation.errors.join("; ")}`)
   const files = walk(dir)
   const pages = files.filter((f) => f.endsWith(".html"))
-  const want = 6 + d.matches.length + d.teams.length + d.players.length
+  const want = plan(new Ctx(d, baseUrl)).length
   if (pages.length !== want) bad.push(`expected ${want} pages, found ${pages.length}`)
   const exists = (u: string) => { const p = join(dir, u); return existsSync(p) && (statSync(p).isFile() || existsSync(join(p, "index.html"))) }
   for (const f of pages) {

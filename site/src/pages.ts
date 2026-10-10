@@ -1,6 +1,8 @@
 import type { Match, Player, Team, Window } from "./types.js"
 import { Ctx, esc, isDone, isLive, isPending, kickoffDay, kickoffFull, kickoffTime, num, scoreText, shortId, signed, stamp, statusLabel } from "./util.js"
 import { evidence, notice, page } from "./layout.js"
+import { pointsChart } from "./charts.js"
+import type { Row, SeasonSummary } from "./types.js"
 
 const matchSnaps = (c: Ctx) => c.d.snapshots.filter((s) => s.endpoint === "matches").map((s) => s.id)
 const lastOf = (c: Ctx, ep: string) => c.d.snapshots.filter((s) => s.endpoint === ep).at(-1)
@@ -186,6 +188,7 @@ ${changeSection(c, t)}
 <section aria-labelledby="fx"><h2 id="fx">Fixtures and results</h2>
 <div class="filters" id="tfilter"><label><input type="radio" name="tv" value="all" checked> All</label><label><input type="radio" name="tv" value="results"> Results</label><label><input type="radio" name="tv" value="fixtures"> Fixtures</label></div>
 <ul class="mlist" id="tlist">${mine.map((m) => matchRow(c, m, t.id)).join("")}</ul></section>
+${historySection(c, t)}
 <section aria-labelledby="sq"><h2 id="sq">Squad</h2>
 ${squad.length ? `<p class="muted">Squad list as last seen ${stamp(squad[0]!.seen ?? d.built_at)}. Provider squad lists can lag real transfers, and shirt numbers and appearances are not available.</p>
 <div class="scroll"><table class="num"><caption class="sr">${esc(t.name)} squad</caption><thead><tr><th scope="col" class="left">Player</th><th scope="col" class="left">Position</th><th scope="col" class="left">Nationality</th><th scope="col" class="left">Born</th></tr></thead>
@@ -262,4 +265,98 @@ ${d.validation.errors.length ? notice("warn", d.validation.errors.map(esc).join(
 
 export function notFound(c: Ctx): string {
   return page(c, { title: "Page not found", path: "404.html", body: `<h1>Page not found</h1><p><a href="${c.href("")}">Back to the overview</a> or use the search above.</p>` })
+}
+
+
+function historySection(c: Ctx, t: Team): string {
+  const d = c.d
+  const pt = d.per_team[String(t.id)]!
+  const cur = d.season
+  const hist = pt.history.filter((h) => h.season !== cur)
+  const chart = pt.series[cur]?.length ? pointsChart(pt.series, cur, `${c.name(t.id)}: points after each league match, ${cur} against earlier seasons`) : ""
+  const rows = pt.history.map((h) => `<tr><th scope="row"><a href="${c.href(`season/${h.season}/`)}">${esc(h.season)}</a></th><td>${h.position}</td><td>${h.points}</td><td>${h.played}</td><td>${signed(h.gd)}</td></tr>`).join("")
+  const others = d.teams.filter((o) => o.current && o.id !== t.id).sort((a, b) => a.name.localeCompare(b.name))
+  return `<section aria-labelledby="hist"><h2 id="hist">How this compares with earlier seasons</h2>
+${chart}
+${hist.length ? `<div class="scroll"><table class="num"><caption class="sr">${esc(t.name)} league finish by season</caption><thead><tr><th scope="col" class="left">Season</th><th scope="col">Position</th><th scope="col">Pts</th><th scope="col">P</th><th scope="col">GD</th></tr></thead><tbody>${rows}</tbody></table></div>
+<p class="muted">Earlier seasons are complete final tables. ${esc(cur)} is the table so far, so its points are not comparable with a full season.</p>` : notice("info", "No earlier Championship seasons are stored for this club.")}
+${evidence(c, { what: "League results for each stored season, summed per club.", calc: d.calc.points, snapshotIds: [...matchSnaps(c), ...d.seasons.flatMap((x) => x.snapshots)] })}
+<details class="evidence"><summary>Compare ${esc(c.name(t.id))} with another club</summary><ul class="cols">${others.map((o) => `<li><a href="${c.href(`compare/${pairSlug(t, o)}/`)}">${esc(o.short_name ?? o.name)}</a></li>`).join("")}</ul></details></section>`
+}
+
+export const pairSlug = (a: Team, b: Team) => (a.slug < b.slug ? `${a.slug}-v-${b.slug}` : `${b.slug}-v-${a.slug}`)
+
+function tableHtml(c: Ctx, rows: Row[], caption: string): string {
+  const body = rows.map((r) => `<tr><td>${r.position}</td><th scope="row">${c.teamLink(r.team)}${r.adjustment ? ` <span class="adj" title="Points adjustment">${signed(r.adjustment)}</span>` : ""}</th><td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.gf}</td><td>${r.ga}</td><td>${signed(r.gd)}</td><td><strong>${r.points}</strong></td></tr>`).join("")
+  return `<div class="scroll"><table class="num"><caption class="sr">${esc(caption)}</caption><thead><tr><th scope="col">#</th><th scope="col" class="left">Club</th><th scope="col">P</th><th scope="col">W</th><th scope="col">D</th><th scope="col">L</th><th scope="col">GF</th><th scope="col">GA</th><th scope="col">GD</th><th scope="col">Pts</th></tr></thead><tbody>${body}</tbody></table></div>`
+}
+
+export function seasonsIndex(c: Ctx): string {
+  const d = c.d
+  const li = (label: string, note: string) => `<li><a class="card" href="${c.href(`season/${label}/`)}"><span><strong>${esc(label)}</strong><small>${note}</small></span></a></li>`
+  const items = [li(d.season, "Current season, table so far"), ...d.seasons.map((s) => li(s.label, s.complete ? `Final table, champions ${esc(c.name(s.table[0]!.team))}` : "Incomplete"))].join("")
+  return page(c, { title: "Seasons", path: "seasons/", nav: "seasons", body: `<h1>Seasons</h1><p>Full league results for each season the data source makes available for free. Older seasons are not available.</p><ul class="cards">${items}</ul>` })
+}
+
+export function seasonPage(c: Ctx, label: string): string {
+  const d = c.d
+  const isCur = label === d.season
+  const s: SeasonSummary | undefined = d.seasons.find((x) => x.label === label)
+  const rows = isCur ? d.table : s!.table
+  const ids = isCur ? matchSnaps(c) : s!.snapshots
+  const po = s?.playoff ?? []
+  const stageName: Record<string, string> = { SEMI_FINALS: "Semi-final", FINAL: "Final", PLAYOFFS: "Play-off" }
+  const poHtml = po.length ? `<section><h2>Play-offs</h2><ul class="mlist">${po.map((m) => `<li class="mrow"><span class="when">${kickoffDay(m.kickoff)}<br><small>${esc(stageName[m.stage] ?? m.stage)}</small></span><span class="teams"><span>${esc(c.name(m.home))}</span><span class="score">${m.hg === null ? "v" : `${m.hg} - ${m.ag}`}</span><span>${esc(c.name(m.away))}</span></span>${m.duration && m.duration !== "REGULAR" ? '<span class="tag">Extra time</span>' : ""}</li>`).join("")}</ul>
+${notice("info", "Play-off scores are as the provider supplies them. Where a match went to extra time the provider's figures can be inconsistent, and penalty shootout results are not given, so the winner of a tie is not always visible here.")}</section>` : ""
+  const body = `<nav class="crumb" aria-label="Breadcrumb"><a href="${c.href("seasons/")}">Seasons</a> / ${esc(label)}</nav><h1>${esc(d.competition)} ${esc(label)}</h1>
+${isCur ? notice("info", `Season in progress. This is the <a href="${c.href("")}">live table</a>.`) : ""}
+${tableHtml(c, rows, `${label} league table`)}
+<p class="legend">${esc(d.calc.order!)} ${isCur ? "" : "Clubs shown without a link are not in the league this season."}</p>
+${evidence(c, { what: `Completed league matches for ${label}.`, calc: `${d.calc.points} ${d.calc.order}`, snapshotIds: ids })}${poHtml}`
+  return page(c, { title: `${d.competition} ${label}`, path: `season/${label}/`, nav: "seasons", body })
+}
+
+export function compareIndex(c: Ctx): string {
+  const cur = c.d.teams.filter((t) => t.current).sort((a, b) => a.name.localeCompare(b.name))
+  const opt = cur.map((t) => `<option value="${t.slug}">${esc(t.short_name ?? t.name)}</option>`).join("")
+  const body = `<h1>Compare two clubs</h1><p>Pick two clubs to see this season side by side and every league meeting in the stored seasons.</p>
+<form class="filters" id="cmp" aria-label="Compare clubs"><label>Club <select name="a">${opt}</select></label><label>with <select name="b">${opt}</select></label><button type="submit" class="btn">Compare</button></form>
+<noscript><p class="notice info">Without JavaScript, open a club page and use "Compare with another club" under the history section.</p></noscript>
+<p id="cmperr" class="notice warn" hidden>Choose two different clubs.</p>`
+  return page(c, { title: "Compare clubs", path: "compare/", nav: "compare", body })
+}
+
+export function comparePage(c: Ctx, a: Team, b: Team): string {
+  const d = c.d
+  const side = (t: Team) => {
+    const r = d.table.find((x) => x.team === t.id)!, pt = d.per_team[String(t.id)]!
+    const l5 = pt.change.status === "insufficient" ? null : pt.change.latest
+    return { t, r, pt, l5 }
+  }
+  const A = side(a), B = side(b)
+  const row = (label: string, x: string, y: string) => `<tr><th scope="row" class="left">${label}</th><td>${x}</td><td>${y}</td></tr>`
+  const meet = d.h2h.filter((m) => (m.home === a.id && m.away === b.id) || (m.home === b.id && m.away === a.id))
+  const tally = { a: 0, d: 0, b: 0, ga: 0, gb: 0 }
+  for (const m of meet) {
+    const fa = m.home === a.id ? m.hg : m.ag, fb = m.home === a.id ? m.ag : m.hg
+    tally.ga += fa; tally.gb += fb
+    if (fa > fb) tally.a++; else if (fa < fb) tally.b++; else tally.d++
+  }
+  const curMatch = (m: { season: string; kickoff: string | null; home: number; away: number }) => d.matches.find((x) => x.kind === "league" && x.home === m.home && x.away === m.away && x.kickoff === m.kickoff)
+  const list = [...meet].reverse().map((m) => {
+    const cm = m.season === d.season ? curMatch(m) : undefined
+    const when = `<span class="when">${kickoffDay(m.kickoff)}<br><small>${esc(m.season)}</small></span>`
+    const cells = `<span>${esc(c.name(m.home))}</span><span class="score">${m.hg} - ${m.ag}</span><span>${esc(c.name(m.away))}</span>`
+    return `<li class="mrow">${when}${cm ? `<a class="teams" href="${c.matchHref(cm)}">${cells}</a>` : `<span class="teams">${cells}</span>`}</li>`
+  }).join("")
+  const body = `<nav class="crumb" aria-label="Breadcrumb"><a href="${c.href("compare/")}">Compare</a> / ${esc(a.short_name ?? a.name)} v ${esc(b.short_name ?? b.name)}</nav>
+<h1>${esc(a.name)} v ${esc(b.name)}</h1>
+<section><h2>${esc(d.season)} so far</h2><div class="scroll"><table><caption class="sr">Side by side, ${esc(d.season)}</caption><thead><tr><th scope="col" class="left">Measure</th><th scope="col"><a href="${c.href(`team/${a.slug}/`)}">${esc(c.name(a.id))}</a></th><th scope="col"><a href="${c.href(`team/${b.slug}/`)}">${esc(c.name(b.id))}</a></th></tr></thead><tbody>
+${row("League position", String(A.r.position), String(B.r.position))}${row("Points", String(A.r.points), String(B.r.points))}${row("Played", String(A.r.played), String(B.r.played))}${row("Goals for", String(A.r.gf), String(B.r.gf))}${row("Goals against", String(A.r.ga), String(B.r.ga))}${row("Goal difference", signed(A.r.gd), signed(B.r.gd))}
+${row("Last five", A.pt.form.join(" ") || "-", B.pt.form.join(" ") || "-")}${row("Points from latest 5", A.l5 ? String(A.l5.points) : "Not enough matches", B.l5 ? String(B.l5.points) : "Not enough matches")}</tbody></table></div>
+${evidence(c, { what: "Completed league matches.", calc: `${d.calc.points} ${d.calc.form}`, snapshotIds: matchSnaps(c) })}</section>
+<section><h2>Head to head</h2>${meet.length ? `<p>In the ${meet.length} league ${meet.length === 1 ? "meeting" : "meetings"} stored (${d.seasons.length + 1} seasons at most): ${esc(c.name(a.id))} ${tally.a} ${tally.a === 1 ? "win" : "wins"}, ${tally.d} ${tally.d === 1 ? "draw" : "draws"}, ${esc(c.name(b.id))} ${tally.b}. Goals ${tally.ga} to ${tally.gb}.</p><ul class="mlist">${list}</ul>
+${notice("info", "Only seasons the data source provides for free are included, and only league matches. Play-offs and cups are not counted.")}
+${evidence(c, { what: "Every completed league match between these two clubs in the stored seasons.", snapshotIds: [...matchSnaps(c), ...d.seasons.flatMap((x) => x.snapshots)] })}` : notice("info", "These clubs have not met in the league in the stored seasons.")}</section>`
+  return page(c, { title: `${a.short_name ?? a.name} v ${b.short_name ?? b.name}`, path: `compare/${pairSlug(a, b)}/`, nav: "compare", body })
 }

@@ -1,5 +1,5 @@
 """Export everything the static site needs as one JSON document. All derived numbers are computed here, once."""
-import json, sqlite3
+import json, re, sqlite3
 from datetime import datetime, timezone
 from . import replay, validate
 
@@ -51,13 +51,15 @@ def export(db_path):
         errors.append(f"unknown match statuses: {bad}")
     season = db.execute("SELECT s.id, s.label, c.name FROM season s JOIN competition c ON c.id=s.competition_id ORDER BY s.label DESC").fetchone()
     sid = season["id"]
-    teams = {r["id"]: dict(r) for r in db.execute(
-        "SELECT t.* FROM team t JOIN team_season ts ON ts.team_id=t.id WHERE ts.season_id=?", (sid,))}
-    tlas = [t["tla"] for t in teams.values()]
-    if len(set(tlas)) != len(tlas) or None in tlas:
-        errors.append("team TLAs are not unique")
+    current_ids = {r[0] for r in db.execute("SELECT team_id FROM team_season WHERE season_id=?", (sid,))}
+    teams = {r["id"]: dict(r) for r in db.execute("SELECT * FROM team ORDER BY id")}
+    for tid, t in teams.items():
+        t["current"] = tid in current_ids
     for t in teams.values():
-        t["slug"] = (t["tla"] or str(t["id"])).lower()
+        t["slug"] = re.sub(r"[^a-z0-9]+", "-", (t["short_name"] or t["name"]).lower()).strip("-")
+    slugs = [t["slug"] for t in teams.values()]
+    if len(set(slugs)) != len(slugs):
+        errors.append("team URL slugs are not unique")
     matches = []
     for r in db.execute("""SELECT m.*, s.kind, s.code FROM match m JOIN stage s ON s.id=m.stage_id
                            WHERE s.season_id=? ORDER BY m.kickoff_utc, m.id""", (sid,)):
@@ -80,6 +82,38 @@ def export(db_path):
             f, a = (m["hg"], m["ag"]) if m["home"] == tid else (m["ag"], m["hg"])
             form.append("W" if f > a else "D" if f == a else "L")
         per_team[tid] = dict(form=form, change=change_report(mine, tid))
+    history, series, seasons = {}, {}, []
+    for hid, hlabel in db.execute("SELECT id, label FROM season ORDER BY label DESC"):
+        lm = [dict(id=r["id"], home=r["home_team_id"], away=r["away_team_id"], hg=r["home_goals"], ag=r["away_goals"], k=r["kickoff_utc"])
+              for r in db.execute("""SELECT m.* FROM match m JOIN stage st ON st.id=m.stage_id
+                  WHERE st.season_id=? AND st.kind='league' AND m.status='FINISHED' ORDER BY m.kickoff_utc, m.id""", (hid,))]
+        rows = validate.league_table(db, hid)
+        for pos, row in enumerate(rows, 1):
+            history.setdefault(row.team_id, []).append(dict(season=hlabel, position=pos, points=row.points, played=row.played, gd=row.gd))
+        for t in {m["home"] for m in lm} | {m["away"] for m in lm}:
+            cum, pts = [], 0
+            for m in lm:
+                if t in (m["home"], m["away"]):
+                    f, a = (m["hg"], m["ag"]) if m["home"] == t else (m["ag"], m["hg"])
+                    pts += _pts(f, a); cum.append(pts)
+            series.setdefault(t, {})[hlabel] = cum
+        complete = db.execute("""SELECT COUNT(*) FROM match m JOIN stage st ON st.id=m.stage_id WHERE st.season_id=? AND st.kind='league'
+                                 AND m.status!='FINISHED'""", (hid,)).fetchone()[0] == 0
+        if hid != sid:
+            seasons.append(dict(label=hlabel, complete=complete, table=[dict(position=i, team=r.team_id, played=r.played, won=r.won, drawn=r.drawn,
+                lost=r.lost, gf=r.gf, ga=r.ga, gd=r.gd, points=r.points, adjustment=r.adjustment, tied=r.tied) for i, r in enumerate(rows, 1)],
+                playoff=[dict(id=r["id"], stage=r["code"], home=r["home_team_id"], away=r["away_team_id"], hg=r["home_goals"], ag=r["away_goals"],
+                              duration=r["score_duration"], kickoff=r["kickoff_utc"]) for r in db.execute(
+                    """SELECT m.*, st.code FROM match m JOIN stage st ON st.id=m.stage_id WHERE st.season_id=? AND st.kind='playoff'
+                       ORDER BY m.kickoff_utc, m.id""", (hid,))],
+                snapshots=[r[0] for r in db.execute("SELECT DISTINCT snapshot_id FROM match m JOIN stage st ON st.id=m.stage_id WHERE st.season_id=?", (hid,))]))
+    for tid, v in per_team.items():
+        v["history"] = history.get(tid, [])
+        v["series"] = series.get(tid, {})
+    # every league meeting between two clubs across the stored seasons, for comparison pages
+    h2h = [dict(season=r["label"], kickoff=r["kickoff_utc"], home=r["home_team_id"], away=r["away_team_id"], hg=r["home_goals"], ag=r["away_goals"])
+           for r in db.execute("""SELECT m.*, s.label FROM match m JOIN stage st ON st.id=m.stage_id JOIN season s ON s.id=st.season_id
+               WHERE st.kind='league' AND m.status='FINISHED' ORDER BY m.kickoff_utc, m.id""")]
     players = {}
     for r in db.execute("""SELECT p.*, sm.team_id, sm.observed_at FROM player p JOIN squad_membership sm ON sm.player_id=p.id
                            WHERE sm.season_id=? ORDER BY p.name, p.id""", (sid,)):
@@ -99,7 +133,7 @@ def export(db_path):
         built_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         transform_version=meta["transform_version"], season=season["label"], competition=season["name"],
         source="football-data.org", snapshots=snaps, failures=failures, validation=dict(errors=errors, notes=notes), calc=CALC,
-        teams=list(teams.values()), matches=matches, table=table, adjustments=adjustments, per_team=per_team,
+        teams=list(teams.values()), seasons=seasons, h2h=h2h, matches=matches, table=table, adjustments=adjustments, per_team=per_team,
         players=list(players.values()),
         coverage=dict(
             match_detail="Score and half-time only. Goals, cards, lineups and match statistics are not available on the free data plan.",

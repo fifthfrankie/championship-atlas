@@ -155,3 +155,16 @@ if (input && box) {
     if (e.key === "/" && !/INPUT|SELECT|TEXTAREA/.test(t.tagName)) { e.preventDefault(); input.focus() }
   })
 }
+
+const cmp = document.getElementById("cmp") as HTMLFormElement | null
+if (cmp) {
+  const a = cmp.elements.namedItem("a") as HTMLSelectElement, b = cmp.elements.namedItem("b") as HTMLSelectElement
+  a.value = params.get("a") ?? a.options[0]!.value
+  b.value = params.get("b") ?? b.options[1]!.value
+  cmp.addEventListener("submit", (e) => {
+    e.preventDefault()
+    if (a.value === b.value) { document.getElementById("cmperr")!.hidden = false; return }
+    const [x, y] = a.value < b.value ? [a.value, b.value] : [b.value, a.value]
+    location.href = `${base}compare/${x}-v-${y}/`
+  })
+}

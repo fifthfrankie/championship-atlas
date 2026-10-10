@@ -87,7 +87,7 @@ def _team(t):
 def stage_kind(stage):
     if stage == "REGULAR_SEASON":
         return "league"
-    if stage in ("PLAYOFFS", "PLAY_OFFS"):
+    if stage in ("PLAYOFFS", "PLAY_OFFS", "SEMI_FINALS", "FINAL"):
         return "playoff"
     raise ValueError(f"unknown stage {stage!r}")
 

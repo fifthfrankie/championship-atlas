@@ -29,7 +29,7 @@ export class Ctx {
   }
   name(id: number) { const t = this.team(id); return t.short_name ?? t.name }
   href(path: string) { return this.base + path }
-  teamLink(id: number) { return `<a href="${this.href(`team/${this.team(id).slug}/`)}">${esc(this.name(id))}</a>` }
+  teamLink(id: number) { const t = this.team(id); return t.current ? `<a href="${this.href(`team/${t.slug}/`)}">${esc(this.name(id))}</a>` : esc(this.name(id)) }
   matchHref(m: Match) { return this.href(`match/${m.id}/`) }
 }
 

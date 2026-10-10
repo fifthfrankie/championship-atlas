@@ -7,17 +7,17 @@ import { test } from "node:test"
 import { check, generate, swap } from "../src/build.ts"
 import type { Data } from "../src/types.ts"
 
-const team = (id: number, tla: string) => ({ id, name: `Team ${tla} FC`, short_name: `Team ${tla}`, tla, slug: tla.toLowerCase(), venue: null, founded: null, club_colours: null })
+const team = (id: number, tla: string) => ({ id, name: `Team ${tla} FC`, short_name: `Team ${tla}`, tla, slug: tla.toLowerCase(), current: true, venue: null, founded: null, club_colours: null })
 const data = (): Data => ({
   built_at: "2026-10-10T12:00:00Z", transform_version: "t", season: "2026-27", competition: "Championship", source: "test source",
   snapshots: [{ id: "a".repeat(64), endpoint: "matches", fetched_at: "2026-10-10T11:00:00Z" }], failures: [],
   validation: { errors: [], notes: [] }, calc: { points: "p", gd: "g", order: "o", form: "f", change: "c" },
-  teams: [team(1, "AAA"), team(2, "BBB")],
+  teams: [team(1, "AAA"), team(2, "BBB")], seasons: [], h2h: [],
   matches: [{ id: 1, stage: "REGULAR_SEASON", kind: "league", matchday: 1, kickoff: "2026-08-08T14:00:00Z", status: "FINISHED", home: 1, away: 2, hg: 1, ag: 0, duration: "REGULAR", ht_h: null, ht_a: null, observed_at: "2026-08-08T16:00:00Z", snapshot: "a".repeat(64) }],
   table: [{ position: 1, team: 1, played: 1, won: 1, drawn: 0, lost: 0, gf: 1, ga: 0, gd: 1, points: 3, adjustment: 0, tied: false },
           { position: 2, team: 2, played: 1, won: 0, drawn: 0, lost: 1, gf: 0, ga: 1, gd: -1, points: 0, adjustment: 0, tied: false }],
   adjustments: [],
-  per_team: { "1": { form: ["W"], change: { status: "insufficient", have: 1, need: 10 } }, "2": { form: ["L"], change: { status: "insufficient", have: 1, need: 10 } } },
+  per_team: { "1": { form: ["W"], change: { status: "insufficient", have: 1, need: 10 }, history: [], series: {} }, "2": { form: ["L"], change: { status: "insufficient", have: 1, need: 10 }, history: [], series: {} } },
   players: [{ id: 9, name: "Test Player", dob: null, nationality: null, position: null, team: 1, seen: null, scorer: null }],
   coverage: { match_detail: "m", players: "p", history: "h" },
 })

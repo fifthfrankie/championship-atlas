@@ -4,7 +4,7 @@ export interface PageOpts { title: string; path: string; desc?: string; nav?: st
 
 const NAV: [string, string, string][] = [
   ["overview", "", "Overview"], ["matches", "matches/", "Matches"], ["teams", "teams/", "Clubs"],
-  ["players", "players/", "Players"], ["status", "status/", "Data status"],
+  ["players", "players/", "Players"], ["seasons", "seasons/", "Seasons"], ["compare", "compare/", "Compare"], ["status", "status/", "Data status"],
 ]
 
 export function page(c: Ctx, o: PageOpts): string {

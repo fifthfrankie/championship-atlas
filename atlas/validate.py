@@ -36,5 +36,9 @@ def run(path):
             comparable += 1
             if r.points != s[6]:
                 errors.append(f"{label}: team {tid} points {r.points} vs provider {s[6]} with identical results (missing adjustment?)")
+        complete = db.execute("""SELECT COUNT(*) FROM match m JOIN stage st ON st.id=m.stage_id
+                                 WHERE st.season_id=? AND st.kind='league' AND m.status!='FINISHED'""", (sid,)).fetchone()[0] == 0
+        if complete and src and behind:
+            errors.append(f"{label}: season is complete but {behind} teams differ from the provider's final table")
         notes.append(f"{label}: {comparable} teams reconcile with the provider table, {behind} not comparable (provider table behind the match feed)")
     return errors, notes

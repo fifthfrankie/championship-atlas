@@ -19,7 +19,7 @@ def dump(path):
     return [list(db.iterdump())]
 
 
-class Core(unittest.TestCase):
+class Base(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         self.root = self.d / "snaps"
@@ -31,6 +31,8 @@ class Core(unittest.TestCase):
         replay.build(self.d / name, self.root)
         return sqlite3.connect(self.d / name)
 
+
+class Core(Base):
     def test_reingest_same_snapshot_does_not_duplicate(self):
         b = body([(1, 2, 2, 1, "FINISHED", "2026-08-08T16:00:00Z")])
         self.ingest(b, "2026-08-09T00:00:00Z"); self.ingest(b, "2026-08-10T00:00:00Z")
@@ -131,7 +133,7 @@ class Change(unittest.TestCase):
         self.assertEqual((r["latest"]["points"], r["latest"]["gf"], r["latest"]["ga"]), (0, 5, 15))
 
 
-class Ingest(unittest.TestCase):
+class IngestBase(unittest.TestCase):
     def setUp(self):
         from atlas import cli
         self.cli = cli
@@ -147,6 +149,8 @@ class Ingest(unittest.TestCase):
         self._quiet.__exit__(None, None, None)
         snapshots.ROOT = self._root
 
+
+class Ingest(IngestBase):
     def test_interrupted_run_keeps_saved_data_and_rerun_does_not_duplicate_snapshots(self):
         calls = []
         def flaky(path, params, token):
@@ -180,7 +184,7 @@ class Ingest(unittest.TestCase):
         self.assertEqual(calls.count("/competitions/ELC/matches"), 3)    # first try plus two retries
 
 
-class Backfill(Ingest):
+class Backfill(IngestBase):
     def test_fetches_only_missing_seasons_and_stops_at_403(self):
         cur = json.dumps({"filters": {"season": "2026"}}).encode()
         snapshots.save("football-data.org", "matches", "/competitions/ELC/matches", cur, 200, "2026-10-01T00:00:00Z", snapshots.ROOT)
@@ -191,3 +195,35 @@ class Backfill(Ingest):
             return (403, b"{}") if params["season"] == 2024 else (200, b'{"y":1}')
         self.assertEqual(self.cli.backfill(fetch=fake, sleep=lambda s: None), 0)
         self.assertEqual(seen, [("standings", 2025), ("matches", 2024)])   # 2025 matches already held; 2024 refused, so stop
+
+
+class Identity(Base):
+    def _one(self, players_by_team):
+        return json.dumps({"competition": {"id": 2016, "name": "Championship"}, "filters": {"season": "2026"}, "teams": [
+            {"id": tid, "name": f"Team {tid}", "shortName": f"T{tid}", "tla": f"T{tid:02d}", "lastUpdated": "2026-08-01T00:00:00Z",
+             "squad": [{"id": pid, "name": name, "position": "Midfield", "dateOfBirth": dob, "nationality": "England"} for pid, name, dob in ps]}
+            for tid, ps in players_by_team.items()]}).encode()
+
+    def test_same_name_different_ids_are_never_merged(self):
+        self.ingest(body([(1, 2, 1, 0, "FINISHED", "2026-08-08T16:00:00Z")]), "2026-08-09T00:00:00Z")
+        snapshots.save("football-data.org", "teams", "x", self._one({1: [(10, "Sam Smith", "2000-01-01")], 2: [(11, "Sam Smith", "1990-05-05")]}),
+                       200, "2026-08-09T00:01:00Z", self.root)
+        db = self.build()
+        self.assertEqual(db.execute("select count(*) from player where name='Sam Smith'").fetchone()[0], 2)
+
+    def test_same_id_with_corrected_details_updates_one_player(self):
+        self.ingest(body([(1, 2, 1, 0, "FINISHED", "2026-08-08T16:00:00Z")]), "2026-08-09T00:00:00Z")
+        for at, dob in (("2026-08-09T00:01:00Z", "2000-01-01"), ("2026-08-10T00:01:00Z", "2000-01-02")):
+            snapshots.save("football-data.org", "teams", "x", self._one({1: [(10, "Sam Smith", dob)]}), 200, at, self.root)
+        db = self.build()
+        self.assertEqual(db.execute("select count(*), max(date_of_birth) from player").fetchone(), (1, "2000-01-02"))
+
+    def test_postponement_then_reschedule_updates_the_same_match(self):
+        self.ingest(body([(1, 2, None, None, "SCHEDULED", "2026-08-01T00:00:00Z")]), "2026-08-02T00:00:00Z")
+        pp = json.loads(body([(1, 2, None, None, "POSTPONED", "2026-08-07T00:00:00Z")]))
+        snapshots.save("football-data.org", "matches", "x", json.dumps(pp).encode(), 200, "2026-08-08T00:00:00Z", self.root)
+        rs = json.loads(body([(1, 2, 2, 1, "FINISHED", "2026-09-02T22:00:00Z")]))
+        rs["matches"][0]["utcDate"] = "2026-09-01T19:45:00Z"
+        snapshots.save("football-data.org", "matches", "x", json.dumps(rs).encode(), 200, "2026-09-03T00:00:00Z", self.root)
+        db = self.build()
+        self.assertEqual(db.execute("select count(*), status, kickoff_utc, home_goals from match").fetchone(), (1, "FINISHED", "2026-09-01T19:45:00Z", 2))

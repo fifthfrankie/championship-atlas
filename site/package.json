@@ -9,6 +9,7 @@
     "test": "tsx --test test/*.test.ts"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
     "playwright": "1.63.0",

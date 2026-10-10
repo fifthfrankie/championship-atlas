@@ -1,9 +1,10 @@
 /** Real-browser acceptance: the supporter journey on the built site, at desktop and mobile widths. */
 import { spawn } from "node:child_process"
-import { mkdirSync } from "node:fs"
+import { mkdirSync, readFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { chromium, type Page } from "playwright"
+import { chromium, type Browser, type Page } from "playwright"
+import AxeBuilder from "@axe-core/playwright"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const PORT = 4199
@@ -102,6 +103,57 @@ async function journey(p: Page, tag: string) {
   ok(errors.length === 0, `${tag}: no console or page errors ${errors.join(" | ")}`)
 }
 
+async function quality(browser: Browser) {
+  const pages = ["", "team/swansea/", "match/1/", "players/", "compare/swansea-v-watford/", "season/2024-25/", "matches/", "status/"]
+  for (const scheme of ["light", "dark"] as const) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, colorScheme: scheme })
+    const p = await ctx.newPage()
+    for (const path of pages) {
+      await p.goto(url(path))
+      const r = await new AxeBuilder({ page: p }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()
+      const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical")
+      ok(bad.length === 0, `axe ${scheme} /${path}: ${bad.map((v) => `${v.id}(${v.nodes.length})`).join(", ") || "no serious or critical violations"}`)
+    }
+    if (scheme === "dark") await p.screenshot({ path: join(shots, "desktop-dark-overview.png") })
+    await ctx.close()
+  }
+  // keyboard: skip link first, every focused control shows a focus indicator
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } })
+  const p = await ctx.newPage()
+  await p.goto(url(""))
+  await p.keyboard.press("Tab")
+  ok((await p.evaluate(() => document.activeElement?.className)) === "skip", "keyboard: first Tab lands on the skip link")
+  await p.keyboard.press("Enter")
+  ok((await p.evaluate(() => document.activeElement?.id)) === "main", "keyboard: skip link moves focus to main content")
+  await p.goto(url(""))
+  let unseen = 0
+  for (let i = 0; i < 14; i++) {
+    await p.keyboard.press("Tab")
+    const vis = await p.evaluate(() => { const e = document.activeElement as HTMLElement; const c = getComputedStyle(e); return c.outlineStyle !== "none" && parseFloat(c.outlineWidth) >= 2 })
+    if (!vis) unseen++
+  }
+  ok(unseen === 0, `keyboard: all of the first 14 focus stops show a visible outline (${unseen} without)`)
+  // sortable header usable by keyboard
+  await p.goto(url(""))
+  await p.locator('#league th[data-key="pts"] button').focus(); await p.keyboard.press("Enter")
+  ok((await p.locator('#league th[data-key="pts"]').getAttribute("aria-sort")) === "ascending", "keyboard: Enter on a column heading sorts")
+  await ctx.close()
+  // stale state, judged against a clock three days after the build
+  const built = JSON.parse(readFileSync(join(root, "build/site/build-info.json"), "utf8")).built_at as string
+  const sctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const sp = await sctx.newPage()
+  await sp.clock.install({ time: new Date(Date.parse(built) + 72 * 3600e3) })
+  await sp.goto(url(""))
+  const banner = await sp.locator("#stale").innerText()
+  ok(/3 days ago/.test(banner), `stale: warning shown when the data is 3 days old ("${banner}")`)
+  await sp.screenshot({ path: join(shots, "mobile-stale.png") })
+  await sctx.close()
+  const fctx = await browser.newContext(); const fp = await fctx.newPage()
+  await fp.goto(url(""))
+  ok(!(await fp.locator("#stale").isVisible()), "stale: no warning on fresh data")
+  await fctx.close()
+}
+
 const browser = await chromium.launch()
 try {
   for (let i = 0; ; i++) {          // wait for the static server to answer
@@ -114,6 +166,7 @@ try {
     await journey(await ctx.newPage(), tag)
     await ctx.close()
   }
+  await quality(browser)
 } finally {
   await browser.close(); server.kill()
 }

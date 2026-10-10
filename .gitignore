@@ -1,0 +1,3 @@
+.env
+data/samples/fduk_*
+data/samples/tsdb_*

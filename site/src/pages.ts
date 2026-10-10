@@ -243,6 +243,7 @@ export function statusPage(c: Ctx): string {
 <section><h2>Freshness</h2><p>Site built <time datetime="${d.built_at}">${stamp(d.built_at)}</time> with transformation version ${esc(d.transform_version)}.</p>
 <div class="scroll"><table><caption class="sr">Latest saved copy of each dataset</caption><thead><tr><th scope="col" class="left">Dataset</th><th scope="col" class="left">Fetched</th><th scope="col" class="left">Saved copy</th></tr></thead><tbody>${ep}</tbody></table></div>
 <p class="muted">The site is rebuilt on a schedule. If the last fetch is more than 36 hours old, every page shows a warning.</p></section>
+<section><h2>Fetch problems</h2>${d.failures.length ? `<ul>${d.failures.map((f) => `<li>${esc(f.endpoint)} returned HTTP ${f.http_status} at ${stamp(f.fetched_at)}. The previous good data stays in use.</li>`).join("")}</ul>` : "<p>No failed fetches recorded.</p>"}</section>
 <section><h2>Checks run before publishing</h2>
 ${d.validation.errors.length ? notice("warn", d.validation.errors.map(esc).join("<br>")) : notice("info", "All checks passed.")}
 <ul>${d.validation.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></section>

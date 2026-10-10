@@ -19,7 +19,8 @@ def build(db_path, root=snapshots.ROOT, adjustments=ADJUSTMENTS):
     db.executescript(SCHEMA)
     used = []
     for e in sorted(snapshots.entries(root), key=lambda e: (e["endpoint"] != "matches", e["fetched_at"], e["id"])):
-        db.execute("INSERT OR IGNORE INTO snapshot VALUES (?,?,?,?,?,?,?)",
+        # Same body fetched again: the later fetch time is when the data was last confirmed current.
+        db.execute("INSERT INTO snapshot VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET fetched_at=excluded.fetched_at",
                    (e["id"], e["source"], e["endpoint"], e["params"], e["fetched_at"], e["http_status"], e["path"]))
         if e["http_status"] == 200 and e["source"] == fdorg.SOURCE and e["endpoint"] in HANDLERS:
             parse, apply = HANDLERS[e["endpoint"]]

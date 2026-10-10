@@ -26,7 +26,15 @@ def entries(root=ROOT):
     manifest = root / "manifest.jsonl"
     if not manifest.exists():
         return []
-    return [json.loads(l) for l in manifest.read_text().splitlines() if l.strip()]
+    out = []
+    lines = [l for l in manifest.read_text().splitlines() if l.strip()]
+    for i, l in enumerate(lines):
+        try:
+            out.append(json.loads(l))
+        except json.JSONDecodeError:
+            if i != len(lines) - 1:   # only a torn final line (interrupted write) is forgiven
+                raise
+    return out
 
 
 def read(entry, root=ROOT):

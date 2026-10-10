@@ -11,7 +11,7 @@ build: replay
 	cd site && npx tsx src/build.ts
 check:
 	python3 -m unittest discover -s tests
-	cd site && npx tsc --noEmit
+	cd site && npx tsc --noEmit && npm test
 serve:
 	@test -d build/site || { echo "No built site. Run: make build"; exit 1; }
 	@echo "Serving http://localhost:$(PORT)/"; python3 -m http.server $(PORT) --directory build/site

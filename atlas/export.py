@@ -92,11 +92,13 @@ def export(db_path):
                                                   penalties=r["penalties"], observed_at=r["observed_at"], snapshot=r["snapshot_id"])
     snaps = [dict(r) for r in db.execute(
         "SELECT id, endpoint, fetched_at FROM snapshot WHERE http_status=200 ORDER BY fetched_at, id")]
+    failures = [dict(r) for r in db.execute(
+        "SELECT endpoint, http_status, fetched_at FROM snapshot WHERE http_status!=200 ORDER BY fetched_at DESC LIMIT 10")]
     meta = {r["key"]: r["value"] for r in db.execute("SELECT * FROM meta")}
     return dict(
         built_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         transform_version=meta["transform_version"], season=season["label"], competition=season["name"],
-        source="football-data.org", snapshots=snaps, validation=dict(errors=errors, notes=notes), calc=CALC,
+        source="football-data.org", snapshots=snaps, failures=failures, validation=dict(errors=errors, notes=notes), calc=CALC,
         teams=list(teams.values()), matches=matches, table=table, adjustments=adjustments, per_team=per_team,
         players=list(players.values()),
         coverage=dict(

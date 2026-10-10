@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler", "strict": true,
-    "noUncheckedIndexedAccess": true, "lib": ["ES2022", "DOM", "DOM.Iterable"], "types": ["node"], "skipLibCheck": true, "noEmit": true
+    "noUncheckedIndexedAccess": true, "lib": ["ES2022", "DOM", "DOM.Iterable"], "types": ["node"], "skipLibCheck": true, "noEmit": true, "allowImportingTsExtensions": true
   },
-  "include": ["src", "e2e"]
+  "include": ["src", "e2e", "test"]
 }

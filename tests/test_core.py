@@ -129,3 +129,54 @@ class Change(unittest.TestCase):
         from atlas import export
         r = export.change_report([dict(id=i, home=2, away=1, hg=3, ag=1) for i in range(5)], 1)
         self.assertEqual((r["latest"]["points"], r["latest"]["gf"], r["latest"]["ga"]), (0, 5, 15))
+
+
+class Ingest(unittest.TestCase):
+    def setUp(self):
+        from atlas import cli
+        self.cli = cli
+        self.d = Path(tempfile.mkdtemp())
+        cli.ROOT = self.d
+        (self.d / ".env").write_text('FOOTBALL_DATA_ORG_KEY="abc"\n')
+        self._root = snapshots.ROOT
+        snapshots.ROOT = self.d / "snaps"
+        snapshots.save.__defaults__ = (snapshots.ROOT,)       # default root for this test only
+        import contextlib, io
+        self._quiet = contextlib.redirect_stdout(io.StringIO()); self._quiet.__enter__()
+
+    def tearDown(self):
+        self._quiet.__exit__(None, None, None)
+        snapshots.ROOT = self._root
+        snapshots.save.__defaults__ = (self._root,)
+
+    def test_interrupted_run_keeps_saved_data_and_rerun_does_not_duplicate_snapshots(self):
+        calls = []
+        def flaky(path, params, token):
+            calls.append(path)
+            if len(calls) == 3:
+                raise KeyboardInterrupt            # simulate the process being killed mid-run
+            return 200, json.dumps({"path": path}).encode()
+        with self.assertRaises(KeyboardInterrupt):
+            self.cli.ingest(fetch=flaky, sleep=lambda s: None)
+        self.assertEqual(len(snapshots.entries(snapshots.ROOT)), 2)       # first two survived
+        self.cli.ingest(fetch=lambda p, q, t: (200, json.dumps({"path": p}).encode()), sleep=lambda s: None)
+        files = list((snapshots.ROOT / "football-data.org").rglob("*.json.gz"))
+        self.assertEqual(len(files), 4)                                    # same bodies, same ids: no duplicate files
+
+    def test_torn_manifest_line_is_forgiven_but_mid_file_corruption_is_not(self):
+        snapshots.save("football-data.org", "matches", "x", b"{}", 200, "2026-01-01T00:00:00Z", snapshots.ROOT)
+        m = snapshots.ROOT / "manifest.jsonl"
+        m.write_text(m.read_text() + '{"id": "tor')
+        self.assertEqual(len(snapshots.entries(snapshots.ROOT)), 1)
+        m.write_text('garbage\n' + m.read_text())
+        with self.assertRaises(Exception):
+            snapshots.entries(snapshots.ROOT)
+
+    def test_429_is_retried_a_bounded_number_of_times(self):
+        calls = []
+        def always429(path, params, token):
+            calls.append(path); return 429, b'{"message":"slow down"}'
+        rc = self.cli.ingest(fetch=always429, sleep=lambda s: None)
+        self.assertEqual(rc, 1)
+        self.assertLessEqual(len(calls), 12)
+        self.assertEqual(calls.count("/competitions/ELC/matches"), 3)    # first try plus two retries

@@ -1,6 +1,6 @@
 import type { Match, Player, Team, Window } from "./types.js"
 import { Ctx, esc, isDone, isLive, isPending, kickoffClock, kickoffDay, kickoffFullFor, kickoffWhen, num, scoreText, shortId, signed, stamp, statusLabel } from "./util.js"
-import { evidence, notice, page } from "./layout.js"
+import { ATTRIBUTION, evidence, notice, page } from "./layout.js"
 import { pointsChart } from "./charts.js"
 import type { Row, SeasonSummary } from "./types.js"
 
@@ -258,7 +258,7 @@ ${d.validation.errors.length ? notice("warn", d.validation.errors.map(esc).join(
 <tr><th scope="row">Players</th><td>${esc(d.coverage.players)}</td></tr>
 <tr><th scope="row">History</th><td>${esc(d.coverage.history)}</td></tr>
 <tr><th scope="row">Advanced metrics</th><td>Not available. No expected-goals, passing or shot-location data is held.</td></tr></tbody></table></section>
-<section><h2>Sources</h2><p>Match, table, squad and scorer data: ${esc(d.source)}. This is an independent fan project and is not affiliated with the EFL or any club.</p></section>
+<section><h2>Sources</h2><p><strong>${ATTRIBUTION}.</strong> Match, table, squad and scorer data: ${esc(d.source)}. This is an independent fan project and is not affiliated with the EFL or any club.</p></section>
 <section><h2>Measures explained</h2><dl class="facts">${Object.entries(d.calc).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>
 <section><h2>Saved copies used in this build</h2><p class="muted">${d.snapshots.length} saved copies.</p><ul class="plain mono">${d.snapshots.map((s) => `<li><code>${shortId(s.id)}</code> ${esc(s.endpoint)} ${stamp(s.fetched_at)}</li>`).join("")}</ul></section>`
   return page(c, { title: "Data status", path: "status/", nav: "status", body })

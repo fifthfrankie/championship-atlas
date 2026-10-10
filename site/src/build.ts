@@ -69,7 +69,9 @@ export function check(d: Data, dir: string, baseUrl: string): string[] {
     const html = readFileSync(f, "utf8")
     const rel = f.slice(dir.length)
     if (/\b(undefined|NaN|\[object Object\])\b/.test(html.replace(/<script[\s\S]*?<\/script>/g, ""))) bad.push(`${rel}: contains undefined/NaN/[object Object]`)
-    if (/—/.test(html)) bad.push(`${rel}: contains an em dash`)
+    if (!/<meta name="robots" content="noindex,nofollow">/.test(html)) bad.push(`${rel}: missing noindex tag`)
+    if (!html.includes("Data provided by football-data.org")) bad.push(`${rel}: missing data attribution`)
+    if (/\u2014/.test(html)) bad.push(`${rel}: contains an em dash`)
     if (!/<h1[ >]/.test(html)) bad.push(`${rel}: no h1`)
     for (const m of html.matchAll(/(?:href|src)="([^"#?]*)(?:[#?][^"]*)?"/g)) {
       const u = m[1]!

@@ -38,7 +38,9 @@ make build  -> build/data.json -> build/site               validate, then swap; 
 
 ## Publish (owner only, nothing here has been run)
 
-Prerequisite: read football-data.org's terms and confirm storing and displaying this data publicly is allowed. Then:
+Terms prerequisite for display is met on the owner's stated verdict (football-data.org permits showing its data on your own site while subscribed, with the attribution "Data provided by football-data.org", which every page carries). This is the owner's statement, not something an agent verified. It does not cover redistributing raw responses, so snapshots stay git-ignored.
+
+The site is public but unlisted: every page has `noindex,nofollow`, there is no sitemap, and no robots.txt Disallow (that would stop crawlers reading the noindex). The repository itself is public even though the site is unlisted, so the code, docs and screenshots are visible to anyone. Then:
 
 ```
 gh repo create championship-atlas --public --source . --remote origin

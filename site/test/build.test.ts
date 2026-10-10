@@ -1,6 +1,6 @@
 // SYNTHETIC data, test only. Proves the swap rule: a rejected build never touches the live output.
 import assert from "node:assert/strict"
-import { mkdtempSync, readFileSync, existsSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, readdirSync, statSync, existsSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { test } from "node:test"
@@ -86,4 +86,23 @@ test("a fixture the provider has not scheduled never shows an invented date or t
   const html = P.matchPage(new Ctx(d, "/"), m)
   assert.match(html, /Date and time to be confirmed/)
   assert.doesNotMatch(html, /1 Jan 2027|00:00 \(UK time\)|Fri, 1 Jan/)
+})
+
+test("every built page carries noindex and the provider attribution, and a page without them is rejected", () => {
+  const root = mkdtempSync(join(tmpdir(), "atlas-"))
+  const out = join(root, "o"); generate(data(), out, "/")
+  const walk = (dir: string): string[] => readdirSync(dir).flatMap((f) => { const p = join(dir, f); return statSync(p).isDirectory() ? walk(p) : [p] })
+  const pages = walk(out).filter((f) => f.endsWith(".html"))
+  assert.ok(pages.length > 5)
+  for (const f of pages) {
+    const html = readFileSync(f, "utf8")
+    assert.match(html, /<meta name="robots" content="noindex,nofollow">/, f)
+    assert.ok(html.includes("Data provided by football-data.org"), f)
+  }
+  assert.ok(!existsSync(join(out, "robots.txt")) && !existsSync(join(out, "sitemap.xml")))
+  const f = join(out, "index.html"), html = readFileSync(f, "utf8")
+  writeFileSync(f, html.replace('<meta name="robots" content="noindex,nofollow">', ""))
+  assert.ok(check(data(), out, "/").some((p) => p.includes("missing noindex tag")))
+  writeFileSync(f, html.replaceAll("Data provided by football-data.org", "x"))
+  assert.ok(check(data(), out, "/").some((p) => p.includes("missing data attribution")))
 })

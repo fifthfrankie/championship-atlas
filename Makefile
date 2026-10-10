@@ -17,7 +17,7 @@ check:
 	@! grep -qE '^(FAILED|ERROR)' build/py-test.log || { echo "Python tests failed"; exit 1; }
 	cd site && npx tsc --noEmit
 	cd site && npm test 2>&1 | tee ../build/node-test.log
-	@grep -qE '^# tests ([6-9]|[1-9][0-9]+)$$' build/node-test.log || { echo "too few site tests ran"; exit 1; }
+	@grep -qE '^# tests ([7-9]|[1-9][0-9]+)$$' build/node-test.log || { echo "too few site tests ran"; exit 1; }
 	@grep -qE '^# fail 0$$' build/node-test.log || { echo "site tests failed"; exit 1; }
 serve:
 	@test -d build/site || { echo "No built site. Run: make build"; exit 1; }

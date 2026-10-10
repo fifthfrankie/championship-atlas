@@ -1,5 +1,8 @@
 import { Ctx, esc, stamp, shortId } from "./util.js"
 
+/** Required wording from the data provider. Present in every page footer and on the status page. */
+export const ATTRIBUTION = "Data provided by football-data.org"
+
 export interface PageOpts { title: string; path: string; desc?: string; nav?: string; body: string }
 
 const NAV: [string, string, string][] = [
@@ -16,6 +19,7 @@ export function page(c: Ctx, o: PageOpts): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(o.title)} | Championship Atlas</title>
+<meta name="robots" content="noindex,nofollow">
 <meta name="description" content="${esc(o.desc ?? `EFL Championship ${d.season}: standings, results, clubs and players, with the source of every number.`)}">
 <link rel="stylesheet" href="${c.href("assets/style.css")}">
 <script>document.documentElement.dataset.base=${JSON.stringify(c.base)};document.documentElement.dataset.fetched=${JSON.stringify(d.data_as_of)}</script>
@@ -42,7 +46,7 @@ ${o.body}
   <div class="wrap">
     <p><strong>Match data last fetched:</strong> <time datetime="${d.data_as_of}">${stamp(d.data_as_of)}</time>. Site built ${stamp(d.built_at)}.
     <a href="${c.href("status/")}">Coverage, sources and checks</a></p>
-    <p>Match, table and squad data from ${esc(d.source)}, fetched ${shortId(d.snapshots[d.snapshots.length - 1]?.id ?? "")}. Independent fan project, not affiliated with the EFL or any club.</p>
+    <p>${ATTRIBUTION}. Match, table and squad data fetched ${shortId(d.snapshots[d.snapshots.length - 1]?.id ?? "")}. Independent fan project, not affiliated with the EFL or any club.</p>
   </div>
 </footer>
 </body>

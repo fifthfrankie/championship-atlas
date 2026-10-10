@@ -1,6 +1,7 @@
 # Scheduled ingestion, build and GitHub Pages deployment. PREPARED, NOT ENABLED.
 # Nothing runs until the owner pushes the repository AND sets the repository variable PUBLISH_ENABLED=true,
-# which they should only do after confirming the data provider's terms (see STATUS.md, Blockers).
+# Display terms: owner-stated as met (public, unlisted site with attribution). Raw snapshots are NOT redistributed.
+# The repository is public even though the site is unlisted (see README, Publish and STATUS.md, Blockers).
 name: Refresh and publish
 
 on:

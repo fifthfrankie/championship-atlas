@@ -27,6 +27,7 @@ def parse_matches(body: bytes):
                 status=m["status"], observed_at=m["lastUpdated"],
                 home=_team(m["homeTeam"]), away=_team(m["awayTeam"]),
                 home_goals=ft["home"], away_goals=ft["away"], duration=m["score"].get("duration"),
+                ht_home=(m["score"].get("halfTime") or {}).get("home"), ht_away=(m["score"].get("halfTime") or {}).get("away"),
             ))
     except (KeyError, TypeError) as e:
         raise ValueError(f"unexpected football-data.org matches shape: {e!r}") from e

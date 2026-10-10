@@ -116,13 +116,13 @@ def _apply_matches(db, e, p):
             db.execute("INSERT OR IGNORE INTO team_season(season_id, team_id) VALUES (?,?)", (season, tid))
             ids.append(tid)
         row = (stage, m["matchday"], m["kickoff"], m["status"], ids[0], ids[1], m["home_goals"], m["away_goals"],
-               m["duration"], m["observed_at"], snap_id)
+               m["duration"], m["ht_home"], m["ht_away"], m["observed_at"], snap_id)
         mid, new = _id(db, S, "match", m["key"], lambda: db.execute(
             "INSERT INTO match(stage_id,matchday,kickoff_utc,status,home_team_id,away_team_id,home_goals,away_goals,"
-            "score_duration,observed_at,snapshot_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)", row).lastrowid)
+            "score_duration,ht_home_goals,ht_away_goals,observed_at,snapshot_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", row).lastrowid)
         if not new:  # a correction or reschedule: only a newer-or-equal observation may overwrite
             db.execute("UPDATE match SET stage_id=?,matchday=?,kickoff_utc=?,status=?,home_team_id=?,away_team_id=?,"
-                       "home_goals=?,away_goals=?,score_duration=?,observed_at=?,snapshot_id=? "
+                       "home_goals=?,away_goals=?,score_duration=?,ht_home_goals=?,ht_away_goals=?,observed_at=?,snapshot_id=? "
                        "WHERE id=? AND observed_at<=?", (*row, mid, m["observed_at"]))
 
 

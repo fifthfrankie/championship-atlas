@@ -1,4 +1,4 @@
-"""python3 -m atlas.cli ingest | replay"""
+"""python3 -m atlas.cli ingest | replay | export"""
 import sys, time
 from pathlib import Path
 from . import fdorg, replay, snapshots
@@ -34,6 +34,12 @@ def main(argv):
         DB.parent.mkdir(exist_ok=True)
         replay.build(DB)
         print(f"rebuilt {DB.relative_to(ROOT)} from {len(snapshots.entries())} manifest entries")
+        return 0
+    if argv[:1] == ["export"]:
+        import json
+        from . import export
+        (ROOT / "build" / "data.json").write_text(json.dumps(export.export(DB)))
+        print("exported build/data.json")
         return 0
     print(__doc__)
     return 64

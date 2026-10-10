@@ -110,3 +110,22 @@ class Validate(unittest.TestCase):
         adj.write_text('season,team_tla,points,reason,evidence_url\n2026-27,T01,-3,test,http://example.test\n')
         replay.build(d / "b.db", root, adj)
         self.assertEqual(validate.run(d / "b.db")[0], [])
+
+
+class Change(unittest.TestCase):
+    def mk(self, n):  # team 1 wins every match 1-0, home and away alternating
+        return [dict(id=i, home=1 if i % 2 else 2, away=2 if i % 2 else 1, hg=1 if i % 2 else 0, ag=0 if i % 2 else 1) for i in range(n)]
+
+    def test_states_and_numbers(self):
+        from atlas import export
+        self.assertEqual(export.change_report(self.mk(4), 1)["status"], "insufficient")
+        p = export.change_report(self.mk(9), 1)
+        self.assertEqual((p["status"], p["latest"]["points"], p["latest"]["gf"], p["latest"]["ga"]), ("partial", 15, 5, 0))
+        ok = export.change_report(self.mk(12), 1)
+        self.assertEqual((ok["status"], ok["delta"]["points"], len(ok["previous"]["matches"])), ("ok", 0, 5))
+        self.assertEqual(ok["latest"]["matches"], [7, 8, 9, 10, 11])   # latest five, oldest first
+
+    def test_goals_are_per_team_perspective(self):
+        from atlas import export
+        r = export.change_report([dict(id=i, home=2, away=1, hg=3, ag=1) for i in range(5)], 1)
+        self.assertEqual((r["latest"]["points"], r["latest"]["gf"], r["latest"]["ga"]), (0, 5, 15))

@@ -1,0 +1,17 @@
+{
+  "name": "championship-atlas-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "generate": "tsx src/build.ts",
+    "e2e": "tsx e2e/journey.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
+    "playwright": "1.63.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

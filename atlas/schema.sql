@@ -31,6 +31,7 @@ CREATE TABLE match (
   away_team_id INTEGER NOT NULL REFERENCES team(id),
   home_goals INTEGER, away_goals INTEGER,    -- NULL = no score, never 0
   score_duration TEXT,                       -- REGULAR / EXTRA_TIME / PENALTY_SHOOTOUT
+  ht_home_goals INTEGER, ht_away_goals INTEGER,
   observed_at TEXT NOT NULL,                 -- source's own last-updated time
   snapshot_id TEXT NOT NULL REFERENCES snapshot(id)
 );

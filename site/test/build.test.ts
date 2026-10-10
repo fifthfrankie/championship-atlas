@@ -99,6 +99,7 @@ test("every built page carries noindex and the provider attribution, and a page 
     assert.match(html, /<meta name="robots" content="noindex,nofollow">/, f)
     assert.ok(html.includes("Data provided by football-data.org"), f)
   }
+  assert.match(readFileSync(join(out, "status/index.html"), "utf8"), /<h2>Sources<\/h2><p><strong>Data provided by football-data\.org\.<\/strong>/)   // the status page itself, not only the footer
   assert.ok(!existsSync(join(out, "robots.txt")) && !existsSync(join(out, "sitemap.xml")))
   const f = join(out, "index.html"), html = readFileSync(f, "utf8")
   writeFileSync(f, html.replace('<meta name="robots" content="noindex,nofollow">', ""))

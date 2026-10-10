@@ -36,5 +36,13 @@ Used: 23 of 40. Web searches are not source requests and are not counted.
 |---|------|------|------|--------|
 | S1 | 2026-10-10 19:20 BST (18:20 UTC) | fbref.com | GET /robots.txt | **403**, `cf-mitigated: challenge`, `server: cloudflare`, body is a "Just a moment..." Cloudflare challenge page (5,455 B). Stopped here as briefed: steps 2 (policy pages) and 3 (stats page) not attempted |
 
-Used: 1 of 6. Prior evidence in the brief: a hosted fetcher also got 403 on the three policy URLs at 19:10 BST. This is the one permitted retest from this machine. Evidence kept in `data/samples/fbref_robots.txt` (git-ignored challenge page).
+Used: 1 of 6. Prior evidence in the brief: a hosted fetcher also got 403 on the three policy URLs at 19:10 BST. This is the one permitted retest from this machine. Evidence kept in `data/samples/fbref_robots.txt` (git-ignored: the challenge page body only). The response headers are recorded here verbatim because the ignored file does not carry them:
+
+```
+HTTP/2 403
+date: Sat, 10 Oct 2026 18:20:53 GMT
+content-type: text/html; charset=UTF-8
+cf-mitigated: challenge
+server: cloudflare
+```
 

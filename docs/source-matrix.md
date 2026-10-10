@@ -1,9 +1,9 @@
 # Source matrix (M0 data feasibility gate)
 
-Verified 2026-10-10 (BST). Discovery requests used: 23 of 40 on docs and keyless sources, plus keyed probes: football-data.org 5 calls (1 failed with an unquoted-key bug of mine), API-Football 4 calls (see `discovery-requests.md`).
+Data evidence verified 2026-10-10 (BST). Display permission for football-data.org is owner-stated, not agent-verified. Discovery requests: 23 of 40 on docs and keyless sources, plus keyed probes: football-data.org 5 calls (1 failed with an unquoted-key bug of mine), API-Football 4 calls; M5 Sports Reference 1 of 6, a separate cap (see `discovery-requests.md`).
 Current season resolved from the source: **2026-27** (Football-Data.co.uk file `2627/E1.csv` holds matches to 20/09/2026; Wikipedia page `2026-27 EFL Championship`; TheSportsDB season `2026-2027`).
 
-Legend: Supported = verified data and permitted route. Partial = usable with documented gaps. Unavailable = no verified permitted $0 route. Blocked = needs an owner action.
+Legend: Supported = verified data and a permitted route (where permission is owner-stated rather than agent-verified, the row says so). Partial = usable with documented gaps. Unavailable = no verified permitted $0 route. Blocked = needs an owner action.
 
 ## Verdict per source
 
@@ -21,8 +21,8 @@ Legend: Supported = verified data and permitted route. Partial = usable with doc
 | Feature | Class | Route and gaps |
 |---|---|---|
 | Fixtures and results, current season | Supported | football-data.org. Display on the owner's verdict with attribution; raw snapshots not redistributed |
-| Standings with adjustments | Supported locally | Derived from results by `atlas/standings.py`, reconciled against `/standings` snapshot; deductions need a cited adjustment |
-| Teams | Supported locally | football-data.org |
+| Standings with adjustments | Supported (display on the owner's verdict) | Derived from results by `atlas/standings.py`, reconciled against `/standings` snapshot; deductions need a cited adjustment |
+| Teams | Supported (display on the owner's verdict) | football-data.org |
 | Match detail beyond score and half-time | Unavailable | No goals, cards or lineups in the free matches response |
 | Player pages, current season | Partial | Squad bio and top 10 scorers only. No appearances, minutes or per-match contribution |
 | Player appearances and history | Partial, 2022 to 2024 only | API-Football, request-hungry, terms unverified |

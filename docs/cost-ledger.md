@@ -20,6 +20,12 @@ Signup for football-data.org and API-Football was done by the owner before this 
 - Larger runners always need a payment method. Not used.
 - Private repositories get a minutes quota and overage billing if a payment method exists. The repository must stay public; no payment method is ever added.
 
+## Candidates not in use
+
+| Service | Verified limit | Usage | Enforcement | Verified |
+|---|---|---|---|---|
+| FBref (Sports Reference) | Unknown: robots.txt and policy pages returned a Cloudflare challenge (403) on 2026-10-10, so no limit could be read | Measured: 1 request, refused. Nothing stored | Not built. A future build must cap itself at 3 requests per run, 7 seconds apart, weekly | 2026-10-10 |
+
 ## Rejected
 
 | Service | Why |

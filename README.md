@@ -34,6 +34,7 @@ make build  -> build/data.json -> build/site               validate, then swap; 
 - Source: football-data.org free plan. Current season results, fixtures, table, squads and top 10 scorers; three earlier seasons of results and tables. No lineups, appearances, minutes or advanced metrics. Player career history is Unavailable.
 - Free limit: 10 requests per minute, hard stop. One `make ingest` is a single process capped at 20 requests (`MAX_REQUESTS_PER_RUN`, retries included), spaced 7 seconds apart. Network errors count as failures and are retried like a 429.
 - Retention: snapshots are immutable and only change when the provider data changes. Estimated growth about 10 KB compressed per matches change. Repository size ceiling for snapshots: 200 MB, which is more than five seasons at four changes a day. A `make check` guard is not needed below that; revisit if snapshots ever enter git.
+- FBref (player minutes and cards) was tried for M5 and is Blocked: its robots.txt returned a Cloudflare bot challenge to an honestly identified client, and getting past a challenge would be evasion. Nothing in the product uses it, and it has never been fetched from a GitHub runner either. See `docs/source-matrix.md`.
 - Snapshots are git-ignored (`data/snapshots/README.md`) because the provider's terms on redistribution are unconfirmed. In CI they live in the Actions cache and are refetched when missing.
 
 ## Publish (owner only, nothing here has been run)

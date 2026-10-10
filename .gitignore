@@ -9,3 +9,4 @@ data/samples/apif_*
 data/snapshots/*
 !data/snapshots/README.md
 .DS_Store
+data/samples/fbref_*

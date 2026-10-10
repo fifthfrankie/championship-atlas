@@ -29,3 +29,12 @@ Counted conservatively: every HTTP fetch of a source host, including redirects, 
 | 23 | 14:3x | en.wikipedia.org | API wikitext | 200, no parseable fixtures |
 
 Used: 23 of 40. Web searches are not source requests and are not counted.
+
+## M5: Sports Reference hosts (budget 6, honest User-Agent `championship-atlas/0.1`, no browser, no proxy)
+
+| # | Date | Host | What | Result |
+|---|------|------|------|--------|
+| S1 | 2026-10-10 19:20 BST (18:20 UTC) | fbref.com | GET /robots.txt | **403**, `cf-mitigated: challenge`, `server: cloudflare`, body is a "Just a moment..." Cloudflare challenge page (5,455 B). Stopped here as briefed: steps 2 (policy pages) and 3 (stats page) not attempted |
+
+Used: 1 of 6. Prior evidence in the brief: a hosted fetcher also got 403 on the three policy URLs at 19:10 BST. This is the one permitted retest from this machine. Evidence kept in `data/samples/fbref_robots.txt` (git-ignored challenge page).
+

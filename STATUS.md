@@ -4,15 +4,14 @@ Read `BRIEF.md` first, then this file. A fresh agent can resume from here alone.
 
 ## Run
 - Start time: Sat 10 Oct 2026 14:34:31 BST. Checkpoint 1 written 16:03 BST and updated 16:25 BST after the QA fixes (the 6 hour limit is a checkpoint, not a stop rule).
-- Current commit: see `git log -1`. Branch `main`, no remote, nothing pushed.
-- Resume point: every task that does not need the owner is done. Next action for an agent with spare time, in order:
-  1. Nothing outstanding that does not need the owner. QA findings are all fixed (section "QA review").
-  2. Stop. The remaining tasks are blocked on the owner (see Blockers).
+- Current commit: see `git log -1`. Branch `main`, no remote, nothing pushed. M5 written 2026-10-10 evening (BST).
+- Resume point: every task that does not need the owner is done, including M5 as far as it can go. Next action for an agent: nothing, stop. If the owner has resolved Blocker 6 (FBref), build M5 Directive 2 from the original M5 brief; otherwise all remaining work is blocked on the owner (see Blockers).
 - Local start command: `make serve` after `make build` (http://localhost:4173/). From a clean checkout: `make setup && make ingest && make build && make serve` (needs `.env` with `FOOTBALL_DATA_ORG_KEY`).
 
 ## Scope and decisions
 - 2026-10-10, owner instruction: scope is M0 to M4 (was M0 to M2). The 6 hour limit is a per-run checkpoint, not a stop rule. At each checkpoint: commit, write the resume point here, continue. Never stop to ask: add owner needs to Blockers and carry on. Stop only when every remaining task is blocked on the owner. Search, Nix-supplied browser and Actions workflow stay in scope. Recorded in `BRIEF.md` section 0 (own commit f61da14).
 - 2026-10-10, owner instruction (M5): scope adds M5, hosting verdict then FBref player data. Owner decision, stated by the owner and NOT verified by an agent: the site is public and unlisted, with attribution. football-data.org permits showing its data on your own site while subscribed, with the attribution "Data provided by football-data.org". That does not cover redistributing raw responses, so snapshots stay git-ignored. The site carries `noindex,nofollow` and no sitemap, and no robots.txt Disallow (it would stop crawlers reading the noindex). The repository itself is public even though the site is unlisted.
+- M5 Directive 2 decision: FBref returned a Cloudflare challenge (403, `cf-mitigated: challenge`) to an honestly identified client on its robots.txt, the first of three Step 0 requests. As briefed that makes it Blocked: no further requests, no browser, no proxy, no code. Also deliberately NOT done: the workflow line passing `ATLAS_FBREF` from `FBREF_ENABLED` (nothing reads it, so it would be a dead switch that implies FBref works); add it together with the code if FBref is ever built. Test count guards: 26 Python (unchanged) and 7 site tests (raised from 6).
 - Source decision (evidence in `docs/source-matrix.md`): football-data.org free plan is the only source. Fixtures, results, table, squads, top 10 scorers for 2026-27, plus full results and tables for 2025-26, 2024-25, 2023-24 (older returns 403). No lineups, appearances, minutes, goal scorers per match or advanced metrics.
 - Rejected: Football-Data.co.uk (terms: private individuals only, no automated or commercial use), TheSportsDB free key (truncates to 15 events and 5 table rows, terms unreadable), API-Football (free plan refuses the 2026 season: "try from 2022 to 2024"; 2024 data exists but players carry no date of birth, so they cannot be mapped to football-data.org players without matching by name, which the brief forbids; terms unreadable; 100 requests per day). Wikipedia has no parseable results.
 - Consequences: player pages show squad bio plus the provider's top 10 scorer record, and say plainly that appearances, minutes and career history are Unavailable. Per-90 metrics, xG and shot maps are out of scope for lack of data.
@@ -24,7 +23,7 @@ Read `BRIEF.md` first, then this file. A fresh agent can resume from here alone.
 - Kick-off times at exactly 00:00 UK are shown as "Time TBC" (provider placeholder).
 - Playwright pinned to 1.63.0, equal to nixpkgs `playwright-driver` (flake guard: `PLAYWRIGHT_DRIVER_VERSION`). Update both together.
 - Discovery request budget: 23 of 40 on docs and keyless sources, plus 9 keyed exploratory calls (`docs/discovery-requests.md`).
-- One mistake caught and fixed during the run: an edit of mine emptied `site/test/build.test.ts` and `make check` still passed. `make check` now fails if fewer than 26 Python tests or 6 site tests run.
+- One mistake caught and fixed during the run: an edit of mine emptied `site/test/build.test.ts` and `make check` still passed. `make check` now fails if fewer than 26 Python tests or 7 site tests run.
 
 ## Tasks
 | ID | Status | Acceptance | Evidence |
@@ -35,7 +34,9 @@ Read `BRIEF.md` first, then this file. A fresh agent can resume from here alone.
 | M3 | prepared, enabling blocked on owner | Schedule enabled, recovery exercised, failure notification | Recovery exercised by tests (interrupted ingest, torn manifest, 429 retries, failed build keeps old site). Notification is the `report` job (one issue per outage, run fails so GitHub emails). Schedule not enabled: owner action |
 | M4 | done within source limits | Bounded backfill, comparisons, historical charts | `make ingest` backfills 3 seasons (idempotent, stops at 403); season pages with play-offs; points-after-each-match chart against two earlier seasons on every club page; 276 head-to-head pages |
 | Checks | done | Brief section 11 list | `make check`: 26 Python tests (no duplicate facts on re-ingest, interrupted ingest, corrections and stale observations, null vs zero, deterministic replay, ambiguous identity, reschedule, standings with adjustment, change windows) and 6 site tests (failed build keeps live site including the real exit path, broken link, page count, em dash and NaN, provisional fixtures). `make e2e`: desktop and mobile journey, axe WCAG 2 A and AA in light and dark (mutation-tested: fails on bad contrast), keyboard, stale |
-| Not applicable | n/a | Per-90 metrics, provider-specific metric identity | No minutes or metrics data exists in the sources; nothing to test |
+| M5 directive 1 | done | Hosting verdict recorded, attribution and noindex on every page, README and workflow notes, site test | Commit f72e474; site test `every built page carries noindex and the provider attribution`; `make build` passes the new build check on all 1,545 files |
+| M5 directive 2 | **Blocked** at Step 0 | FBref permission and access proven before any code | `docs/discovery-requests.md` S1: robots.txt 403, `cf-mitigated: challenge`. Rest of Directive 2 skipped as briefed; no FBref code written |
+| Not applicable | n/a | Per-90 metrics, provider-specific metric identity | Still no minutes or metrics data in any reachable source, so the row stays; it flips only if FBref is built |
 
 ## Verification evidence (measured, not estimated)
 - Real data on the built site: 552 matches (99 completed at fetch time), 24 clubs, 677 squad players, 3 earlier seasons (557 matches each).
@@ -44,11 +45,13 @@ Read `BRIEF.md` first, then this file. A fresh agent can resume from here alone.
 - Estimated, not measured: GitHub Actions minutes (about 6 per run).
 
 ## Blockers
-- Redistribution of raw responses (owner action): the display verdict is owner-stated (above). It does not cover publishing raw snapshots in a public repository. Read football-data.org's terms and record whether redistribution is allowed in `docs/source-matrix.md`. Until then snapshots stay git-ignored and CI keeps them in the Actions cache.
-- Publishing (owner action, nothing has been run): follow "Publish" in `README.md`. The workflow does nothing until `PUBLISH_ENABLED=true`.
-- Pages on a Free account for public repositories: confirmed only through a docs search summary; owner to re-confirm in repository Settings, Pages.
-- Player appearances and career history (not unblockable at $0 today): needs a source whose free tier covers the current season with player-level data and a safe identity key. None found.
-- Scheduled workflows pause after 60 days without repository activity and a paused schedule cannot re-enable itself. Owner action: push any commit or run `gh workflow enable publish.yml` at least every 8 weeks.
+Everything left needs the owner. Exact actions:
+1. Redistribution of raw responses: the display verdict is owner-stated (see Scope and decisions) and does not cover publishing raw snapshots. Read football-data.org's terms and record in `docs/source-matrix.md` whether raw responses may sit in a public repository. Until then snapshots stay git-ignored and CI keeps them in the Actions cache.
+2. Create the repository and push (nothing has been run): `gh repo create championship-atlas --public --source . --remote origin`, then set the secret `FOOTBALL_DATA_ORG_KEY`, then `git push -u origin main` (exact commands in `README.md`, Publish). The repository is public even though the site is unlisted.
+3. Enable Pages with source GitHub Actions (`gh api -X POST repos/:owner/championship-atlas/pages -f build_type=workflow`) and re-confirm in Settings, Pages that a Free account can serve a public repository (confirmed only through a docs search summary).
+4. Set `PUBLISH_ENABLED=true` (`gh variable set PUBLISH_ENABLED --body true`). Nothing publishes before this.
+5. Keepalive, every 8 weeks: scheduled workflows pause after 60 days without repository activity and a paused schedule cannot re-enable itself. Push any commit or run `gh workflow enable publish.yml`.
+6. FBref (player minutes, starts, cards, per-90): read the three policy pages in a browser (`https://fbref.com/robots.txt`, `https://www.sports-reference.com/bot-traffic.html`, `https://www.sports-reference.com/data_use.html`) and record what they say about automated collection, rates and republishing in `docs/source-matrix.md`. If automation is allowed and a route exists that does not involve passing a Cloudflare challenge, ask an agent to build M5 Directive 2 from the original M5 brief, and decide `FBREF_ENABLED` for CI. Until then FBref is Blocked and player pages keep the Unavailable state. No other source for player appearances exists at $0.
 
 ## QA review
 One independent read-only review ran at the end of checkpoint 1 (12 findings listed). Each was checked against the code or built output before fixing. All were real; status:

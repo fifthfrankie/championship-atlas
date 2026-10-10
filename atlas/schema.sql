@@ -17,7 +17,8 @@ CREATE TABLE stage (
   id INTEGER PRIMARY KEY, season_id INTEGER NOT NULL REFERENCES season(id),
   code TEXT NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('league','playoff')), UNIQUE (season_id, code)
 );
-CREATE TABLE team (id INTEGER PRIMARY KEY, name TEXT NOT NULL, short_name TEXT, tla TEXT);
+CREATE TABLE team (id INTEGER PRIMARY KEY, name TEXT NOT NULL, short_name TEXT, tla TEXT,
+  venue TEXT, founded INTEGER, club_colours TEXT);
 CREATE TABLE team_season (
   id INTEGER PRIMARY KEY, season_id INTEGER NOT NULL REFERENCES season(id),
   team_id INTEGER NOT NULL REFERENCES team(id), UNIQUE (season_id, team_id)
@@ -43,3 +44,29 @@ CREATE TABLE standings_adjustment (
   reason TEXT NOT NULL, evidence_url TEXT NOT NULL
 );
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+-- Players are keyed by source id only. Never merged by name; a second source would add a source_id row
+-- only through an explicit, reviewed mapping.
+CREATE TABLE player (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, date_of_birth TEXT, nationality TEXT, position TEXT
+);
+-- Dated squad membership as observed in one snapshot. observed_at is when we saw it, not when they joined.
+CREATE TABLE squad_membership (
+  season_id INTEGER NOT NULL REFERENCES season(id), team_id INTEGER NOT NULL REFERENCES team(id),
+  player_id INTEGER NOT NULL REFERENCES player(id), observed_at TEXT NOT NULL,
+  snapshot_id TEXT NOT NULL REFERENCES snapshot(id), PRIMARY KEY (season_id, team_id, player_id)
+);
+-- Provider's own top-scorers list (top 10 only on the free tier). NULL assists/penalties = not supplied.
+CREATE TABLE scorer (
+  season_id INTEGER NOT NULL REFERENCES season(id), rank INTEGER NOT NULL,
+  player_id INTEGER NOT NULL REFERENCES player(id), team_id INTEGER NOT NULL REFERENCES team(id),
+  played INTEGER, goals INTEGER, assists INTEGER, penalties INTEGER,
+  observed_at TEXT NOT NULL, snapshot_id TEXT NOT NULL REFERENCES snapshot(id), PRIMARY KEY (season_id, rank)
+);
+-- The provider's published table, kept only to reconcile our own calculation.
+CREATE TABLE source_standing (
+  season_id INTEGER NOT NULL REFERENCES season(id), team_id INTEGER NOT NULL REFERENCES team(id),
+  position INTEGER NOT NULL, played INTEGER NOT NULL, won INTEGER NOT NULL, drawn INTEGER NOT NULL, lost INTEGER NOT NULL,
+  gf INTEGER NOT NULL, ga INTEGER NOT NULL, points INTEGER NOT NULL,
+  observed_at TEXT NOT NULL, snapshot_id TEXT NOT NULL REFERENCES snapshot(id), PRIMARY KEY (season_id, team_id)
+);

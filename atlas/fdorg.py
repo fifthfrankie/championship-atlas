@@ -34,6 +34,51 @@ def parse_matches(body: bytes):
     return dict(comp_key=str(comp["id"]), comp_name=comp["name"], season_label=f"{start}-{str(start + 1)[2:]}", matches=matches)
 
 
+def _label(d):
+    start = int(d["filters"]["season"])
+    return f"{start}-{str(start + 1)[2:]}"
+
+
+def parse_standings(body: bytes):
+    d = json.loads(body)
+    try:
+        tables = [t for t in d["standings"] if t["stage"] == "REGULAR_SEASON" and t["type"] == "TOTAL"]
+        if len(tables) != 1:
+            raise ValueError("expected exactly one REGULAR_SEASON TOTAL table")
+        rows = [dict(team=_team(r["team"]), position=r["position"], played=r["playedGames"], won=r["won"], drawn=r["draw"],
+                     lost=r["lost"], gf=r["goalsFor"], ga=r["goalsAgainst"], points=r["points"]) for r in tables[0]["table"]]
+        return dict(comp_key=str(d["competition"]["id"]), season_label=_label(d), rows=rows)
+    except (KeyError, TypeError) as e:
+        raise ValueError(f"unexpected football-data.org standings shape: {e!r}") from e
+
+
+def parse_teams(body: bytes):
+    d = json.loads(body)
+    try:
+        teams = []
+        for t in d["teams"]:
+            teams.append(dict(**_team(t), venue=t.get("venue"), founded=t.get("founded"), colours=t.get("clubColors"),
+                              observed_at=t["lastUpdated"], squad=[_player(p) for p in t["squad"]]))
+        return dict(comp_key=str(d["competition"]["id"]), season_label=_label(d), teams=teams)
+    except (KeyError, TypeError) as e:
+        raise ValueError(f"unexpected football-data.org teams shape: {e!r}") from e
+
+
+def parse_scorers(body: bytes):
+    d = json.loads(body)
+    try:
+        rows = [dict(player=_player(s["player"]), team=_team(s["team"]), played=s.get("playedMatches"), goals=s.get("goals"),
+                     assists=s.get("assists"), penalties=s.get("penalties")) for s in d["scorers"]]
+        return dict(comp_key=str(d["competition"]["id"]), season_label=_label(d), rows=rows)
+    except (KeyError, TypeError) as e:
+        raise ValueError(f"unexpected football-data.org scorers shape: {e!r}") from e
+
+
+def _player(p):
+    return dict(key=str(p["id"]), name=p["name"], dob=p.get("dateOfBirth"), nationality=p.get("nationality"),
+                position=p.get("position"))
+
+
 def _team(t):
     return dict(key=str(t["id"]), name=t["name"], short=t.get("shortName"), tla=t.get("tla"))
 

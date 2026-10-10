@@ -91,3 +91,22 @@ class Standings(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Validate(unittest.TestCase):
+    def test_unexplained_points_gap_is_an_error_and_adjustment_clears_it(self):
+        from atlas import validate
+        d = Path(tempfile.mkdtemp()); root = d / "s"
+        snapshots.save("football-data.org", "matches", "x", body([(1, 2, 2, 0, "FINISHED", "2026-08-08T16:00:00Z")]), 200, "2026-08-09T00:00:00Z", root)
+        st = {"competition": {"id": 2016}, "filters": {"season": "2026"}, "standings": [{"stage": "REGULAR_SEASON", "type": "TOTAL", "table": [
+            {"position": 1, "team": {"id": 2, "name": "Team 2"}, "playedGames": 1, "won": 0, "draw": 0, "lost": 1, "points": 0, "goalsFor": 0, "goalsAgainst": 2},
+            {"position": 2, "team": {"id": 1, "name": "Team 1", "tla": "T01"}, "playedGames": 1, "won": 1, "draw": 0, "lost": 0, "points": 0, "goalsFor": 2, "goalsAgainst": 0}]}]}
+        snapshots.save("football-data.org", "standings", "y", json.dumps(st).encode(), 200, "2026-08-09T00:01:00Z", root)
+        none = d / "none.csv"
+        replay.build(d / "a.db", root, none)
+        errors, _ = validate.run(d / "a.db")
+        self.assertTrue(any("missing adjustment" in e for e in errors))
+        adj = d / "adj.csv"
+        adj.write_text('season,team_tla,points,reason,evidence_url\n2026-27,T01,-3,test,http://example.test\n')
+        replay.build(d / "b.db", root, adj)
+        self.assertEqual(validate.run(d / "b.db")[0], [])

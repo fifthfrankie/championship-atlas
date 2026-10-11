@@ -67,7 +67,7 @@ async function journey(p: Page, tag: string) {
   ok(lead === "" || /^After \d+ league matches .* have \d+ points/.test(lead), `${tag}: pace sentence reads properly ("${lead.slice(0, 60)}")`)
   ok((await p.locator("nav.jump a").count()) === 5, `${tag}: club page has jump links`)
   const h = await p.evaluate(() => document.documentElement.scrollHeight)
-  ok(h < (tag === "mobile" ? 6500 : 5200), `${tag}: club page height ${h}px is kept in check`)
+  ok(h < (tag === "mobile" ? 5500 : 4300), `${tag}: club page height ${h}px is kept in check`)
   await noOverflow(p, `${tag} team`)
   await p.screenshot({ path: join(shots, `${tag}-team.png`), fullPage: true })
 

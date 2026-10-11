@@ -52,6 +52,10 @@ class OpenFootball(unittest.TestCase):
         old = openfootball.parse_season(OLD.encode(), 2000)
         self.assertEqual([(m["home"], m["away"], m["hg"], m["ag"]) for m in old], [("Barnsley FC", "Norwich City", 1, 0), ("Queens Park Rangers", "Birmingham City", 0, 0)])
 
+    def test_a_season_that_starts_in_july_gets_the_right_year_from_the_weekday(self):
+        ms = openfootball.parse_season("\u25aa Matchday 1\n  Fri Jul 29\n    20:00  Alpha FC   v Beta FC   1-0\n  Sat Jan 7\n    15:00  Beta FC v Alpha FC   0-0\n".encode(), 2022)
+        self.assertEqual([m["date"] for m in ms], ["2022-07-29", "2023-01-07"])        # 29 July 2022 was a Friday; the same date in 2023 was a Saturday
+
     def test_unreadable_lines_fail_loudly(self):
         with self.assertRaises(ValueError):
             openfootball.parse_season("\u25aa Matchday 1\nSat Aug 12 2000\n  15:00  Alpha FC 1-0 Beta\n".encode(), 2000)
@@ -239,12 +243,23 @@ class Careers(Fixtures):
         self.assertTrue(all(replay._near_dob(a, b) for a, b in [("2003-10-12", "2003-10-11"), ("2002-11-15", "2002-12-15"), ("2005-05-01", "2005-01-05"), ("2002-06-17", "2003-06-17")]))
         self.assertFalse(any(replay._near_dob(a, b) for a, b in [("2005-05-13", "1999-02-06"), ("1996-11-04", "1990-11-04"), ("2001-03-05", "2001-10-29")]))
         self.basics()
+        self.save("teams", "/competitions/ELC/teams", with_dobs(self.SQUAD, {10: "2000-03-10", 11: "1995-05-05", 20: "1990-02-02"}), "2026-10-01T00:03:00Z")
         self.page("Club One F.C.", [row("[[Sam Smith]]", pos="MF", nat="ENG", league="2+0")])
-        self.person("Sam Smith", "2000-01-02")                        # squad list says 2000-01-01
+        self.person("Sam Smith", "2000-03-11")                        # squad list says 2000-03-10
         db = self.build_()
         self.assertEqual(self.linked(db), {"Sam Smith": 1})
-        self.assertEqual(db.execute("select basis, dob_confirmed, dob_note from wiki_link_basis").fetchall(), [("name", 0, "2000-01-02 on the article, 2000-01-01 in the squad list")])
+        self.assertEqual(db.execute("select basis, dob_confirmed, dob_note from wiki_link_basis").fetchall(), [("name", 0, "2000-03-11 on the article, 2000-03-10 in the squad list")])
         self.assertEqual([r[0] for r in db.execute("select kind from wiki_issue")], ["link_dob_differs"])
+
+    def test_a_first_of_january_squad_date_is_a_year_only_placeholder_not_a_conflict(self):
+        self.basics()
+        self.save("teams", "/competitions/ELC/teams", with_dobs(self.SQUAD, {10: "2000-01-01", 11: "1995-05-05", 20: "1990-02-02"}), "2026-10-01T00:03:00Z")
+        self.page("Club One F.C.", [row("[[Sam Smith]]", pos="MF", nat="ENG", league="2+0"), row("[[Somebody Else]]", pos="DF", nat="WAL", league="1+0", no=2)])
+        self.person("Sam Smith", "2000-12-20")                         # same year as the placeholder: kept, not refused
+        self.person("Somebody Else", "2000-01-01")                     # a 1 January squad date must not EARN a link by itself
+        db = self.build_()
+        self.assertEqual(self.linked(db), {"Sam Smith": 1})
+        self.assertEqual(db.execute("select dob_confirmed, dob_note from wiki_link_basis").fetchall(), [(0, "the squad list gives 1 January, probably only the year")])
 
     def test_dob_claim_shared_by_two_squad_players_stays_unlinked(self):
         self.basics()
@@ -284,6 +299,18 @@ class Careers(Fixtures):
         self.assertEqual(d["people"], {"count": 1, "linked": 1})
 
 
+class SortName(unittest.TestCase):
+    def test_sortname_template_is_read_and_template_text_never_becomes_a_name(self):
+        self.assertEqual(wiki.person_cell("{{sortname|Bobby|Clark|Bobby Clark (footballer, born 2005)}}"), ("Bobby Clark (footballer, born 2005)", "Bobby Clark"))
+        self.assertEqual(wiki.person_cell("{{sortname|Sammie|Szmodics}}"), ("Sammie Szmodics", "Sammie Szmodics"))
+        self.assertEqual(wiki.person_cell("{{sortname|A|B|nolink}}"), ("A B", "A B"))
+        self.assertEqual(wiki.person_cell("[[Joshua Key (footballer)|Joshua Key]]"), ("Joshua Key (footballer)", "Joshua Key"))
+        self.assertEqual(wiki.person_cell("''{{sortname|Henrik|Meister}}''"), ("Henrik Meister", "Henrik Meister"))      # a loan is italic
+        self.assertEqual(wiki.person_cell("{{sortname|Eiran|Cashin|nolink=1}}"), ("Eiran Cashin", "Eiran Cashin"))
+        self.assertEqual(wiki.person_cell("Plain Name"), (None, "Plain Name"))
+        self.assertNotIn("{{", wiki.person_cell("{{flagicon|ENG}} Odd Name")[1])
+
+
 class HandTable(unittest.TestCase):
     def table(self, header_rows, rows, title="2026–27 Hand F.C. season", before="<p>Last updated: 19 September 2026</p>"):
         trs = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>" for r in rows)
@@ -318,22 +345,35 @@ class Product(unittest.TestCase):
     def teams(self, n):
         return {i: dict(current=True) for i in range(1, n + 1)}
 
-    def per_team(self, now, prev, change="insufficient"):
-        return {t: dict(series={"2026-27": n, **({"2025-26": prev[t]} if prev.get(t) else {})}, change=dict(status=change)) for t, n in now.items()}
+    def per_team(self, now, prev, change="insufficient", adj=None):
+        return {t: dict(series={"2026-27": n, **({"2025-26": prev[t]} if prev.get(t) else {})}, change=dict(status=change), history=(adj or {}).get(t, [])) for t, n in now.items()}
 
     def test_pace_compares_points_after_the_same_number_of_matches_and_needs_three(self):
         from atlas import export
         pt = self.per_team({1: [3, 4, 7, 10], 2: [0, 1], 3: [3, 6, 9]}, {1: [0, 1, 2, 5, 8, 11], 3: None})
         m = export._pace_and_movers(pt, "2026-27", self.teams(3))
-        self.assertEqual(pt[1]["pace"], dict(n=4, now=10, prev_label="2025-26", prev_points=5))     # 4th match last season, not the final total
+        self.assertEqual(pt[1]["pace"], dict(n=4, now=10, adjustment=0, prev_label="2025-26", prev_points=5, prev_adjusted=False))     # 4th match last season, not the final total
         self.assertIsNone(pt[2]["pace"])                                                            # two matches is too few to say anything
         self.assertEqual(pt[3]["pace"]["prev_points"], None)                                        # promoted: no earlier figure, and no invented one
         self.assertEqual(m["basis"], "pace"); self.assertEqual([r["team"] for r in m["rows"]], [1])  # a club with no earlier figure is not ranked
 
+    def test_pace_counts_this_seasons_deduction_so_it_matches_the_table_and_does_not_guess_when_last_seasons_came(self):
+        from atlas import export
+        pt = self.per_team({1: [3, 6, 9, 12]}, {1: [1, 2, 3, 4, 5]}, adj={1: [dict(season="2026-27", adjustment=-4), dict(season="2025-26", adjustment=-6)]})
+        export._pace_and_movers(pt, "2026-27", self.teams(1))
+        self.assertEqual(pt[1]["pace"], dict(n=4, now=8, adjustment=-4, prev_label="2025-26", prev_points=4, prev_adjusted=True))   # 12 won - 4 = 8, as in the table
+
+    def test_the_comparison_season_can_differ_by_club_and_says_which(self):
+        from atlas import export
+        pt = self.per_team({1: [3, 6, 9], 2: [0, 0, 3]}, {1: [3, 3, 6, 9], 2: None})
+        pt[2]["series"]["2024-25"] = [1, 2, 3, 4]                                                  # promoted last year: the latest season it played is older
+        m = export._pace_and_movers(pt, "2026-27", self.teams(2))
+        self.assertEqual({r["team"]: r["vs"] for r in m["rows"]}, {1: "2025-26", 2: "2024-25"})
+
     def test_movers_switch_to_the_five_v_five_delta_only_when_every_club_has_it(self):
         from atlas import export
         ok = lambda a, b: dict(status="ok", latest=dict(points=a), previous=dict(points=b), delta=dict(points=a - b))
-        pt = {1: dict(series={"2026-27": []}, change=ok(10, 4)), 2: dict(series={"2026-27": []}, change=ok(3, 9))}
+        pt = {1: dict(series={"2026-27": []}, change=ok(10, 4), history=[]), 2: dict(series={"2026-27": []}, change=ok(3, 9), history=[])}
         m = export._pace_and_movers(pt, "2026-27", self.teams(2))
         self.assertEqual((m["basis"], [(r["team"], r["delta"]) for r in m["rows"]]), ("change", [(1, 6), (2, -6)]))
         pt[2]["change"] = dict(status="partial")
@@ -345,13 +385,16 @@ class Product(unittest.TestCase):
         rows = [dict(name="A", player="1", comps=comp(8, 5)), dict(name="B", player=None, comps=comp(9, 2)), dict(name="C", player="3", comps=comp(None, None))]
         wd = dict(pages=[dict(team=1, status="ok", competitions=["Championship"], as_of="2026-10-01", title="t", permalink=None, revision=1, snapshot="s")], clubs={1: rows})
         pt = {1: {}}
-        export._contrib(pt, wd, [dict(team=1, gf=9)])
+        ms = [dict(kind="league", status="FINISHED", home=1, away=2, hg=4, ag=0, kickoff="2026-09-01T14:00:00Z"),
+              dict(kind="league", status="FINISHED", home=2, away=1, hg=0, ag=5, kickoff="2026-09-20T14:00:00Z")]
+        export._contrib(pt, wd, [dict(team=1, gf=9)], ms)
         c = pt[1]["contrib"]
         self.assertEqual([x["name"] for x in c["scorers"]], ["A", "B"]); self.assertEqual([x["name"] for x in c["used"]], ["B", "A"])
         self.assertTrue(c["share_ok"])                                                              # 7 listed goals of 9
-        export._contrib(pt, wd, [dict(team=1, gf=6)])                                               # the editors are ahead of the match feed
-        self.assertFalse(pt[1]["contrib"]["share_ok"])
-        wd["pages"][0]["status"] = "rejected"; export._contrib(pt, wd, [dict(team=1, gf=9)])
+        wd["pages"][0]["as_of"] = "2026-09-10"                                                      # the editors' date is before the second match: only 4 goals then
+        export._contrib(pt, wd, [dict(team=1, gf=9)], ms)
+        self.assertEqual((pt[1]["contrib"]["club_goals"], pt[1]["contrib"]["share_ok"]), (4, False))   # 7 listed goals cannot be 100% of 4: no share is shown
+        wd["pages"][0]["status"] = "rejected"; export._contrib(pt, wd, [dict(team=1, gf=9)], ms)
         self.assertIsNone(pt[1]["contrib"])
 
 
@@ -403,6 +446,16 @@ class Ingest(unittest.TestCase):
         go(datetime(2026, 10, 10, 7, tzinfo=timezone.utc)); self.assertEqual(set(self.calls), {"Flaky"})     # 6 hours on: only the transient failure (a 503 is retried within the run)
         self.calls.clear(); go(datetime(2026, 11, 20, tzinfo=timezone.utc))
         self.assertIn("Red link", self.calls)                                                                # 41 days on: looked at again
+
+    def test_a_rate_limit_stops_the_run_after_three_failures_in_a_row(self):
+        calls = []
+        def fetch(title, params, token):
+            calls.append(title); return 429, b"slow down"
+        sleeps = []
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.wiki_players_ingest(fetch=fetch, sleep=sleeps.append, now=datetime(2026, 10, 10, tzinfo=timezone.utc), env={}, titles=[f"P{i}" for i in range(40)])
+        self.assertEqual(len(set(calls)), 3)                          # three titles tried, then the run stops
+        self.assertLessEqual(len(sleeps), 3 * 3 * 1 + 3)              # a bounded amount of waiting, not 110 minutes
 
     def test_openfootball_refreshes_finished_seasons_rarely_and_the_latest_daily(self):
         t0 = datetime(2026, 10, 10, tzinfo=timezone.utc)

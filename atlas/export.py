@@ -136,7 +136,7 @@ def export(db_path):
         p["url_id"] = keys[("player", p["id"])]
     wiki_data = _wiki(db, sid, teams, players)
     movers = _pace_and_movers(per_team, season["label"], teams)
-    _contrib(per_team, wiki_data, table)
+    _contrib(per_team, wiki_data, table, matches)
     for team, rows_ in wiki_data["clubs"].items():
         pg = next(x for x in wiki_data["pages"] if x["team"] == team)
         for row in rows_:
@@ -274,19 +274,22 @@ def _pace_and_movers(per_team, cur, teams):
         if n < 3 or not teams[tid]["current"]:
             continue
         prev = next(((lab, ser) for lab, ser in sorted(v["series"].items(), reverse=True) if lab != cur and len(ser) >= n), None)
-        v["pace"] = dict(n=n, now=now[-1], prev_label=prev[0] if prev else None, prev_points=prev[1][n - 1] if prev else None)
+        adj = next((h["adjustment"] for h in v["history"] if h["season"] == cur), 0)     # the table's points include this season's adjustment
+        padj = next((h["adjustment"] for h in v["history"] if prev and h["season"] == prev[0]), 0)
+        v["pace"] = dict(n=n, now=now[-1] + adj, adjustment=adj, prev_label=prev[0] if prev else None, prev_points=prev[1][n - 1] if prev else None,
+                         prev_adjusted=bool(padj))     # when in that season a deduction came is not known, so it is not applied at stage n
     cur_ids = [t for t in per_team if teams[t]["current"]]
     if cur_ids and all(per_team[t]["change"]["status"] == "ok" for t in cur_ids):
         rows = [dict(team=t, delta=per_team[t]["change"]["delta"]["points"], a=per_team[t]["change"]["latest"]["points"], b=per_team[t]["change"]["previous"]["points"]) for t in cur_ids]
         basis = "change"
     else:
-        rows = [dict(team=t, delta=p["now"] - p["prev_points"], a=p["now"], b=p["prev_points"]) for t in cur_ids for p in [per_team[t]["pace"]] if p and p["prev_points"] is not None]
+        rows = [dict(team=t, delta=p["now"] - p["prev_points"], a=p["now"], b=p["prev_points"], vs=p["prev_label"]) for t in cur_ids for p in [per_team[t]["pace"]] if p and p["prev_points"] is not None]
         basis = "pace"
     rows.sort(key=lambda r: (-r["delta"], r["team"]))
     return dict(basis=basis, rows=rows)
 
 
-def _contrib(per_team, wiki_data, table):
+def _contrib(per_team, wiki_data, table, matches):
     """Who is carrying a club: the top league scorers and most used players from its usable Wikipedia table. A share of the club's
     goals is given only when the players' goals do not exceed the club's (an editor can be ahead of our match feed)."""
     gf = {r["team"]: r["gf"] for r in table}
@@ -301,8 +304,12 @@ def _contrib(per_team, wiki_data, table):
             continue
         cells = [(r, r["comps"][lg]) for r in rows]
         total = sum(c["goals"] or 0 for _, c in cells)
+        # the club's goals at the editors' as-of date, so the share compares like with like (the table can be weeks behind our feed)
+        asof = pg["as_of"]
+        gf_asof = sum((m["hg"] if m["home"] == tid else m["ag"]) for m in matches if m["kind"] == "league" and m["status"] in COMPLETED
+                      and tid in (m["home"], m["away"]) and asof and (m["kickoff"] or "")[:10] <= asof) if asof else None
         pick = lambda r, c: dict(name=r["name"], player=r["player"], goals=c["goals"], apps=c["apps"])
         scorers = [pick(r, c) for r, c in sorted(cells, key=lambda x: (-(x[1]["goals"] or 0), x[0]["name"])) if (c["goals"] or 0) > 0][:3]
         used = [pick(r, c) for r, c in sorted(cells, key=lambda x: (-(x[1]["apps"] or 0), x[0]["name"])) if (c["apps"] or 0) > 0][:3]
-        v["contrib"] = dict(as_of=pg["as_of"], club_goals=gf.get(tid), listed_goals=total, share_ok=gf.get(tid) is not None and 0 < total <= gf[tid],
+        v["contrib"] = dict(as_of=pg["as_of"], club_goals=gf_asof, listed_goals=total, share_ok=gf_asof is not None and 0 < total <= gf_asof,
                             scorers=scorers, used=used, title=pg["title"], permalink=pg["permalink"], revision=pg["revision"], snapshot=pg["snapshot"])

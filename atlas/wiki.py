@@ -88,6 +88,23 @@ def link_title(wt):
     return None, re.sub(r"''+", "", wt).strip()
 
 
+_SORTNAME = re.compile(r"^\{\{\s*sortname\s*\|([^|{}]*)\|([^|{}]*)(?:\|([^|{}]*))?[^{}]*\}\}\s*$", re.I)
+
+
+def person_cell(wt):
+    """The player cell of a club table: (article title or None, shown name). Handles a wikilink, the `sortname` template
+    ({{sortname|First|Last|Article}}) and plain text. Template text is never shown as a name."""
+    m = _SORTNAME.match(wt.strip().strip("'").strip())          # italics mark a loan, they are not part of the name
+    if m:
+        first, last, article = (x.strip() if x else "" for x in m.groups())
+        if "=" in article:
+            article = ""                                         # a named parameter such as nolink=1, not an article
+        shown = f"{first} {last}".strip()
+        return (article if article and article.lower() != "nolink" else shown) or None, shown
+    title, shown = link_title(wt)
+    return title, _clean(shown) or shown
+
+
 _NUM = re.compile(r"^\d+$")
 
 
@@ -181,7 +198,7 @@ def _parse_efs(body: bytes):
     for t in rows_t:
         pr = t["params"]
         name_wt = _wt(pr, "name")
-        ptitle, shown = link_title(name_wt)
+        ptitle, shown = person_cell(name_wt)
         vals = [_wt(pr, i) for i in range(1, 2 * len(comps) + 1)]
         if _wt(pr, 2 * len(comps) + 1):
             raise ValueError(f"row for {shown!r} has more figures than the {len(comps)} competitions")

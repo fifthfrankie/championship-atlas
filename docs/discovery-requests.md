@@ -90,6 +90,6 @@ Separate from the M0 cap of 40 and the M6 cap. Honest User-Agent, no browser, no
 | openfootball sample files | raw.githubusercontent.com, about 40 reads while writing the parser (some seasons several times), then 27 from the ingest command | about 67 | The ingest command's 27 are the product's own requests. Formats seen: two layouts, `[awarded]`, play-offs with extra time and penalties |
 | dcaribou/transfermarkt-datasets | api.github.com repo, raw README | 2 | Read only. Nothing downloaded |
 | Wikipedia article pages (allowed path) | Probes while writing the parsers: 3 player-article fetches and 3 final-table fetches | 6 | One probe hit a disambiguation page (`Abu Kamara`), which is why the product fetches the exact linked title |
-| Wikipedia article pages (product requests) | 557 player articles (2 returned 404), 26 final league tables | 583 | Saved in `data/snapshots/manifest.jsonl`, each with a timestamp |
+| Wikipedia article pages (product requests) | 582 player articles (2 returned 404; 25 more after a parser fix for the `sortname` template), 26 final league tables | 608 | Saved in `data/snapshots/manifest.jsonl`, each with a timestamp |
 
 Nothing was fetched from `/w/`, `/api/`, `Special:`, Wikidata or any site with a Cloudflare challenge.

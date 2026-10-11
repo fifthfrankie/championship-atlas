@@ -185,8 +185,8 @@ test("results-only seasons and player careers render, with their sources and a v
 
 test("the club page leads with pace and who is carrying the club, and the overview leads with movers; blanks and bases are stated", () => {
   const d = data()
-  d.per_team["1"]!.pace = { n: 4, now: 10, prev_label: "2025-26", prev_points: 5 }
-  d.per_team["2"]!.pace = { n: 4, now: 1, prev_label: null, prev_points: null }
+  d.per_team["1"]!.pace = { n: 4, now: 10, adjustment: 0, prev_label: "2025-26", prev_points: 5, prev_adjusted: false }
+  d.per_team["2"]!.pace = { n: 4, now: 1, adjustment: 0, prev_label: null, prev_points: null, prev_adjusted: false }
   d.per_team["1"]!.contrib = { as_of: "2026-10-01", club_goals: 8, listed_goals: 7, share_ok: true, scorers: [{ name: "Test Player", player: "9001", goals: 4, apps: 8 }], used: [{ name: "Other Person", player: null, goals: 0, apps: 9 }], title: "t", permalink: null, revision: 1, snapshot: "a".repeat(64) }
   d.movers = { basis: "pace", rows: [1, 2, 1, 2, 1, 2].map((team, i) => ({ team, delta: 5 - i * 2, a: 10, b: 5 })) }
   const dir = mkdtempSync(join(tmpdir(), "atlas-"))
@@ -200,4 +200,7 @@ test("the club page leads with pace and who is carrying the club, and the overvi
   const home = readFileSync(join(dir, "index.html"), "utf8")
   assert.ok(home.indexOf('id="mov"') < home.indexOf('id="table"'))
   assert.match(home, /same number of league matches/)
+  d.players[0]!.name = "{{sortname|Bad|Name}}"                     // raw template text must stop the build, not reach a page
+  const bad = mkdtempSync(join(tmpdir(), "atlas-")); generate(d, bad, "/")
+  assert.ok(check(d, bad, "/").some((p) => p.includes("raw template text")))
 })

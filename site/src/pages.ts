@@ -24,7 +24,7 @@ ${state}</li>`
 function moversSection(c: Ctx): string {
   const m = c.d.movers
   if (m.rows.length < 6) return ""
-  const li = (r: { team: number; delta: number; a: number; b: number }) => `<li><a href="${c.href(`team/${c.team(r.team).slug}/`)}#chg">${esc(c.name(r.team))}</a> <strong class="${r.delta > 0 ? "up" : "dn"}">${signed(r.delta)}</strong> <small>${r.a} v ${r.b}</small></li>`
+  const li = (r: { team: number; delta: number; a: number; b: number; vs?: string | null }) => `<li><a href="${c.href(`team/${c.team(r.team).slug}/`)}#chg">${esc(c.name(r.team))}</a> <strong class="${r.delta > 0 ? "up" : "dn"}">${signed(r.delta)}</strong> <small>${r.a} v ${r.b}${r.vs ? ` (${esc(r.vs)})` : ""}</small></li>`
   const risers = m.rows.filter((r) => r.delta > 0).slice(0, 5), fallers = m.rows.filter((r) => r.delta < 0).slice(-5).reverse()
   const basis = m.basis === "change" ? "Points from each club's latest 5 league matches against the 5 before." : "Points after the same number of league matches, this season against the latest earlier season the club played in the second tier (clubs promoted or newly relegated have no earlier figure and are left out)."
   return `<section aria-labelledby="mov"><h2 id="mov">Biggest movers</h2><p>${esc(basis)} Click a club for the matches behind it.</p>
@@ -185,13 +185,18 @@ function paceLine(c: Ctx, t: Team): string {
   if (!p) return ""
   if (p.prev_points === null) return `<p class="lead">${esc(n)} have <strong>${p.now}</strong> points from ${p.n} league matches. There is no earlier Championship season to compare with at the same stage, because ${esc(n)} were not in the second tier in the seasons stored.</p>`
   const d = p.now - p.prev_points
-  return `<p class="lead">After ${p.n} league matches ${esc(n)} have <strong>${p.now}</strong> points, ${d === 0 ? "the same as" : `<strong>${Math.abs(d)} ${d > 0 ? "more" : "fewer"}</strong> than`} the ${p.prev_points} they had after ${p.n} in ${esc(p.prev_label!)}.</p>`
+  const adj = p.adjustment ? ` (including a ${Math.abs(p.adjustment)} point ${p.adjustment < 0 ? "deduction" : "addition"})` : ""
+  const last = p.prev_adjusted ? ` That season's figure is before any points deduction, because when it was applied is not known.` : ""
+  return `<p class="lead">After ${p.n} league matches ${esc(n)} have <strong>${p.now}</strong> points${adj}, ${d === 0 ? "the same as" : `<strong>${Math.abs(d)} ${d > 0 ? "more" : "fewer"}</strong> than`} the ${p.prev_points} they had after ${p.n} in ${esc(p.prev_label!)}.${last}</p>`
 }
 
 /** Who is carrying the club: the top league scorers and most used players from the club's Wikipedia table, in words. */
 function contribBlock(c: Ctx, t: Team): string {
   const k = c.d.per_team[String(t.id)]!.contrib
-  if (!k) return ""
+  if (!k) {
+    const pg = c.d.wiki.pages.find((w) => w.team === t.id)
+    return `<h3>Who is carrying the club</h3>${notice("info", pg ? `Not shown for ${esc(c.name(t.id))}: ${esc(pg.reason ?? "its Wikipedia table could not be used")}.` : `Not shown: the Wikipedia table for ${esc(c.name(t.id))} has not been fetched.`)}`
+  }
   const who = (x: { name: string; player: string | null }) => (x.player ? `<a href="${c.href(`player/${x.player}/`)}">${esc(x.name)}</a>` : esc(x.name))
   const share = (g: number) => (k.share_ok && k.club_goals ? ` (${Math.round((100 * g) / k.club_goals)}% of the club's ${k.club_goals} league goals)` : "")
   const top = k.scorers[0]
@@ -372,9 +377,9 @@ function longRecord(c: Ctx, t: Team): string {
   const rec = Object.values(c.d.history.clubs).find((x) => x.team === t.id)
   const older = (rec?.seasons ?? []).filter((x) => !have.has(x.season))
   if (!older.length) return ""
-  return `<h3>Earlier seasons since 2000-01</h3>
+  return `<details class="more"><summary>Earlier seasons since 2000-01 (${older.length})</summary>
 <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(t.name)} league finish in earlier seasons, results only</caption><thead><tr><th scope="col" class="left">Season</th><th scope="col">Position</th><th scope="col">Pts</th><th scope="col">P</th></tr></thead><tbody>${older.map((x) => `<tr><th scope="row"><a href="${c.href(`season/${x.season}/`)}">${esc(x.season)}</a></th><td>${x.position}</td><td>${x.points}</td><td>${x.played}</td></tr>`).join("")}</tbody></table></div>
-<p class="muted">Only seasons in the second tier are listed. Results from ${esc(c.d.history.source.name)} (${esc(c.d.history.source.licence)}); a points deduction is applied only where the season's final Wikipedia table shows one.</p>`
+<p class="muted">Only seasons in the second tier are listed. Results from ${esc(c.d.history.source.name)} (${esc(c.d.history.source.licence)}); a points deduction is applied only where the season's final Wikipedia table shows one.</p></details>`
 }
 
 export const pairSlug = (a: Team, b: Team) => (a.slug < b.slug ? `${a.slug}-v-${b.slug}` : `${b.slug}-v-${a.slug}`)

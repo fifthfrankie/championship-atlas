@@ -13,7 +13,7 @@ build: replay
 check:
 	@mkdir -p build
 	python3 -m unittest discover -s tests 2>&1 | tee build/py-test.log
-	@awk '/^Ran [0-9]+ tests/ {ok = ($$2 >= 110)} END {exit !ok}' build/py-test.log || { echo "too few Python tests ran"; exit 1; }
+	@awk '/^Ran [0-9]+ tests/ {ok = ($$2 >= 116)} END {exit !ok}' build/py-test.log || { echo "too few Python tests ran"; exit 1; }
 	@! grep -qE '^(FAILED|ERROR)' build/py-test.log || { echo "Python tests failed"; exit 1; }
 	cd site && npx tsc --noEmit
 	cd site && npm test 2>&1 | tee ../build/node-test.log

@@ -13,17 +13,22 @@ PLAN = [("/competitions/ELC/matches", "matches"), ("/competitions/ELC/standings"
         ("/competitions/ELC/teams", "teams"), ("/competitions/ELC/scorers", "scorers")]
 HISTORY_SEASONS = 3          # earlier seasons the free tier serves; older ones return 403
 RETRIES = 2
+BREAKER = 3                  # stop a run after this many consecutive failed requests, so a rate limit cannot burn the CI time cap
 
 
 class _Run:
     """One bounded run: caps total requests, spaces them out, retries 429 and 5xx a fixed number of times."""
     def __init__(self, fetch, sleep, source=fdorg.SOURCE, cap=fdorg.MAX_REQUESTS_PER_RUN, spacing=fdorg.MIN_INTERVAL_S, token=None, clock=None):
         self.fetch, self.sleep, self.sent, self.failed = fetch, sleep, 0, 0
+        self.streak = 0                      # consecutive requests that ended in a failure other than 404
         self.clock = clock or fdorg.now
         self.source, self.cap, self.spacing = source, cap, spacing
         self.token = token if token is not None or source != fdorg.SOURCE else fdorg.token_from_env(ROOT / ".env")
 
     def get(self, path, params, name):
+        if self.streak >= BREAKER:
+            print(f"{self.source}: {BREAKER} failures in a row (rate limit or outage), stopping this run")
+            return None
         label = path + ("?" + "&".join(f"{k}={v}" for k, v in sorted(params.items())) if params else "")
         for attempt in range(RETRIES + 1):
             if self.sent >= self.cap:
@@ -37,6 +42,7 @@ class _Run:
             if status == 200 or (0 < status < 500 and status != 429):
                 break
         self.failed += status != 200
+        self.streak = self.streak + 1 if status not in (200, 404) and (status == 0 or status >= 400) else 0
         return status
 
 

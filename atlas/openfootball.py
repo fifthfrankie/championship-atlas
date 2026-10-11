@@ -70,6 +70,23 @@ def _score(text):
                 pen_a=int(pen.group(2)) if pen else None, aet=aet, reg_h=reg[0] if reg else None, reg_a=reg[1] if reg else None)
 
 
+def _date(line, mon, day, yr, year, month):
+    """Most date lines carry no year. The weekday on the line picks it: of two consecutive years a given day and month never fall on
+    the same weekday, so the file's own weekday settles it (a season can start in July: 'Fri Jul 29' is 2022, not 2023). Only when
+    neither year fits is the Aug-Dec rule used."""
+    if yr:
+        return datetime(int(yr), month, day).strftime("%Y-%m-%d")
+    wd = line.split()[0]
+    for yy in (year, year + 1):
+        try:
+            d = datetime(yy, month, day)
+        except ValueError:
+            continue
+        if d.strftime("%a") == wd:
+            return d.strftime("%Y-%m-%d")
+    return datetime(year if month >= 8 else year + 1, month, day).strftime("%Y-%m-%d")
+
+
 def parse_season(body: bytes, year: int):
     """-> list of dict(kind 'league'|'playoff', stage, matchday, date, time, home, away, + _score fields), played matches only.
     A heading with 'Matchday' is the league; any other heading (Playoffs, Finals, Semifinals) is the play-offs. Lines that look
@@ -91,8 +108,7 @@ def parse_season(body: bytes, year: int):
         if m:
             mon, day, yr = m.groups()
             month = datetime.strptime(mon, "%b").month
-            yy = int(yr) if yr else year if month >= 8 else year + 1       # no year on most date lines: Aug-Dec is the start year
-            date = datetime(yy, month, int(day)).strftime("%Y-%m-%d"); continue
+            date = _date(m.group(0), mon, int(day), yr, year, month); continue
         t = _TIME.match(line)
         time = f"{int(t.group(2)):02d}:{t.group(3)}" if t else None
         if t:

@@ -376,6 +376,11 @@ def _apply_people(db, root, people):
         t = title_of.get((sid, team, n))
         a, b = dob.get(t), player_dob.get(pid)
         note = None
+        if a and b and a != b and b.endswith("-01-01") and a[:4] == b[:4]:
+            # a 1 January in the squad list is the usual placeholder for "only the year is known": the year agrees, nothing more is claimed
+            note = "the squad list gives 1 January, probably only the year"
+            db.execute("INSERT INTO wiki_link_basis VALUES (?,?,?,?,0,?)", (sid, team, n, "name", note))
+            continue
         if a and b and a != b:
             if not _near_dob(a, b):
                 db.execute("DELETE FROM wiki_link WHERE season_id=? AND team_id=? AND row_no=?", (sid, team, n))
@@ -395,7 +400,7 @@ def _apply_people(db, root, people):
         for n, t in rows:
             if n in linked or not t or not dob.get(t):
                 continue
-            cands = [pid for pid, d in squad if d == dob[t] and pid not in taken]
+            cands = [pid for pid, d in squad if d == dob[t] and not (d or "").endswith("-01-01") and pid not in taken]
             if len(cands) == 1:
                 claims.setdefault(cands[0], []).append(n)
         for pid, ns in sorted(claims.items()):
@@ -531,7 +536,7 @@ def _carry_adjustments(db, label):
         if db.execute("SELECT 1 FROM standings_adjustment WHERE season_id=? AND team_id=?", (season[0], team)).fetchone():
             continue
         db.execute("INSERT INTO standings_adjustment(season_id, team_id, points, reason, evidence_url, origin) VALUES (?,?,?,?,?,'wikipedia')",
-                   (season[0], team, points, f"Final table of {title} lists {points} points fewer than the results give",
+                   (season[0], team, points, f"The final table of {title} lists {abs(points)} points {'fewer' if points < 0 else 'more'} than the results give",
                     f"https://en.wikipedia.org/w/index.php?title={title.replace(' ', '_')}&oldid={rev}"))
 
 

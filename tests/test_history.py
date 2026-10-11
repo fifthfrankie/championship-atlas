@@ -313,6 +313,48 @@ class HandTable(unittest.TestCase):
             wiki.parse_club_season(self.table(self.HEAD, self.rows(3)))                                      # too few players to be a squad table
 
 
+class Product(unittest.TestCase):
+    """Pace, movers and contributors are plain functions of data the export already holds."""
+    def teams(self, n):
+        return {i: dict(current=True) for i in range(1, n + 1)}
+
+    def per_team(self, now, prev, change="insufficient"):
+        return {t: dict(series={"2026-27": n, **({"2025-26": prev[t]} if prev.get(t) else {})}, change=dict(status=change)) for t, n in now.items()}
+
+    def test_pace_compares_points_after_the_same_number_of_matches_and_needs_three(self):
+        from atlas import export
+        pt = self.per_team({1: [3, 4, 7, 10], 2: [0, 1], 3: [3, 6, 9]}, {1: [0, 1, 2, 5, 8, 11], 3: None})
+        m = export._pace_and_movers(pt, "2026-27", self.teams(3))
+        self.assertEqual(pt[1]["pace"], dict(n=4, now=10, prev_label="2025-26", prev_points=5))     # 4th match last season, not the final total
+        self.assertIsNone(pt[2]["pace"])                                                            # two matches is too few to say anything
+        self.assertEqual(pt[3]["pace"]["prev_points"], None)                                        # promoted: no earlier figure, and no invented one
+        self.assertEqual(m["basis"], "pace"); self.assertEqual([r["team"] for r in m["rows"]], [1])  # a club with no earlier figure is not ranked
+
+    def test_movers_switch_to_the_five_v_five_delta_only_when_every_club_has_it(self):
+        from atlas import export
+        ok = lambda a, b: dict(status="ok", latest=dict(points=a), previous=dict(points=b), delta=dict(points=a - b))
+        pt = {1: dict(series={"2026-27": []}, change=ok(10, 4)), 2: dict(series={"2026-27": []}, change=ok(3, 9))}
+        m = export._pace_and_movers(pt, "2026-27", self.teams(2))
+        self.assertEqual((m["basis"], [(r["team"], r["delta"]) for r in m["rows"]]), ("change", [(1, 6), (2, -6)]))
+        pt[2]["change"] = dict(status="partial")
+        self.assertEqual(export._pace_and_movers(pt, "2026-27", self.teams(2))["basis"], "pace")
+
+    def test_contributors_are_the_top_listed_players_and_a_share_never_exceeds_the_club_total(self):
+        from atlas import export
+        comp = lambda apps, goals: [dict(apps=apps, goals=goals)]
+        rows = [dict(name="A", player="1", comps=comp(8, 5)), dict(name="B", player=None, comps=comp(9, 2)), dict(name="C", player="3", comps=comp(None, None))]
+        wd = dict(pages=[dict(team=1, status="ok", competitions=["Championship"], as_of="2026-10-01", title="t", permalink=None, revision=1, snapshot="s")], clubs={1: rows})
+        pt = {1: {}}
+        export._contrib(pt, wd, [dict(team=1, gf=9)])
+        c = pt[1]["contrib"]
+        self.assertEqual([x["name"] for x in c["scorers"]], ["A", "B"]); self.assertEqual([x["name"] for x in c["used"]], ["B", "A"])
+        self.assertTrue(c["share_ok"])                                                              # 7 listed goals of 9
+        export._contrib(pt, wd, [dict(team=1, gf=6)])                                               # the editors are ahead of the match feed
+        self.assertFalse(pt[1]["contrib"]["share_ok"])
+        wd["pages"][0]["status"] = "rejected"; export._contrib(pt, wd, [dict(team=1, gf=9)])
+        self.assertIsNone(pt[1]["contrib"])
+
+
 class Ingest(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())

@@ -21,6 +21,17 @@ function matchRow(c: Ctx, m: Match, focus?: number): string {
 ${state}</li>`
 }
 
+function moversSection(c: Ctx): string {
+  const m = c.d.movers
+  if (m.rows.length < 6) return ""
+  const li = (r: { team: number; delta: number; a: number; b: number }) => `<li><a href="${c.href(`team/${c.team(r.team).slug}/`)}#chg">${esc(c.name(r.team))}</a> <strong class="${r.delta > 0 ? "up" : "dn"}">${signed(r.delta)}</strong> <small>${r.a} v ${r.b}</small></li>`
+  const risers = m.rows.filter((r) => r.delta > 0).slice(0, 5), fallers = m.rows.filter((r) => r.delta < 0).slice(-5).reverse()
+  const basis = m.basis === "change" ? "Points from each club's latest 5 league matches against the 5 before." : "Points after the same number of league matches, this season against the latest earlier season the club played in the second tier (clubs promoted or newly relegated have no earlier figure and are left out)."
+  return `<section aria-labelledby="mov"><h2 id="mov">Biggest movers</h2><p>${esc(basis)} Click a club for the matches behind it.</p>
+<div class="two"><div><h3>Better than before</h3><ol class="movers">${risers.map(li).join("") || "<li>None.</li>"}</ol></div><div><h3>Worse than before</h3><ol class="movers">${fallers.map(li).join("") || "<li>None.</li>"}</ol></div></div>
+${evidence(c, { what: "Completed league matches for this and earlier seasons, summed per club.", calc: m.basis === "change" ? c.d.calc.change : "Points after N league matches this season minus points after the same N matches in the latest earlier season. Points adjustments are not included.", snapshotIds: [...matchSnaps(c), ...c.d.seasons.flatMap((x) => x.snapshots)] })}</section>`
+}
+
 export function overview(c: Ctx): string {
   const d = c.d
   const done = d.matches.filter((m) => m.kind === "league" && isDone(m)).sort((a, b) => (b.kickoff ?? "").localeCompare(a.kickoff ?? ""))
@@ -45,7 +56,7 @@ export function overview(c: Ctx): string {
   <h1>What changed at your club?</h1>
   <p class="lede">Every league result so far, with form, a before-and-after change report for each club, and the source behind each number. Every club has played at least ${played} league matches.</p>
 </section>
-${live.length ? `<section aria-labelledby="live"><h2 id="live">In play when the data was last fetched</h2><ul class="mlist">${live.map((m) => matchRow(c, m)).join("")}</ul>${notice("info", "Live scores are as of the last fetch and can be out of date. They are not counted in the table.")}</section>` : ""}
+${moversSection(c)}
 <section aria-labelledby="table"><h2 id="table">League table</h2>
 <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table id="league" class="sortable num" data-sortable>
 <caption class="sr">League table, ${esc(d.season)}. Press a column heading to sort.</caption>
@@ -55,6 +66,7 @@ ${live.length ? `<section aria-labelledby="live"><h2 id="live">In play when the 
 ${adjNote ? `<div id="adj"><h3>Points adjustments</h3><ul>${adjNote}</ul></div>` : ""}
 ${evidence(c, { what: "Completed league matches saved from the provider, summed per club.", calc: `${d.calc.points} ${d.calc.order}`, snapshotIds: matchSnaps(c) })}
 </section>
+${live.length ? `<section aria-labelledby="live"><h2 id="live">In play when the data was last fetched</h2><ul class="mlist">${live.map((m) => matchRow(c, m)).join("")}</ul>${notice("info", "Live scores are as of the last fetch and can be out of date. They are not counted in the table.")}</section>` : ""}
 <div class="two">
 <section aria-labelledby="res"><h2 id="res">Recent results</h2><ul class="mlist">${done.slice(0, 10).map((m) => matchRow(c, m)).join("")}</ul><p><a href="${c.href("matches/?view=results")}">All results</a></p></section>
 <section aria-labelledby="fix"><h2 id="fix">Next fixtures</h2>${next.length ? `<ul class="mlist">${next.slice(0, 10).map((m) => matchRow(c, m)).join("")}</ul><p><a href="${c.href("matches/?view=fixtures")}">All fixtures</a></p>` : notice("info", "No scheduled fixtures in the saved data.")}</section>
@@ -163,7 +175,30 @@ ${notice("info", `The comparison with the previous 5 needs ${ch.need - ch.have} 
     inner = `<p>${esc(n)} took <strong>${ch.latest.points}</strong> points from their latest 5 league matches, ${p === 0 ? "the same as" : `${Math.abs(p)} ${p > 0 ? "more" : "fewer"} than`} the ${ch.previous.points} from the 5 before. Goals scored: ${ch.latest.gf}, ${dir(ch.delta.gf, "up", "down")}. Goals conceded: ${ch.latest.ga}, ${dir(ch.delta.ga, "up", "down")}.</p>
 <div class="wins">${win(c, ch.latest, t.id, "Latest 5")}${win(c, ch.previous, t.id, "Previous 5")}</div>${ev([...ch.previous.matches, ...ch.latest.matches])}`
   }
-  return `<section aria-labelledby="chg"><h2 id="chg">What changed</h2>${inner}</section>`
+  return `<section aria-labelledby="chg"><h2 id="chg">What changed</h2>${paceLine(c, t)}${inner}${contribBlock(c, t)}</section>`
+}
+
+/** Points after the same number of matches, this season against the latest earlier one. Works from the third match. */
+function paceLine(c: Ctx, t: Team): string {
+  const p = c.d.per_team[String(t.id)]!.pace
+  const n = c.name(t.id)
+  if (!p) return ""
+  if (p.prev_points === null) return `<p class="lead">${esc(n)} have <strong>${p.now}</strong> points from ${p.n} league matches. There is no earlier Championship season to compare with at the same stage, because ${esc(n)} were not in the second tier in the seasons stored.</p>`
+  const d = p.now - p.prev_points
+  return `<p class="lead">After ${p.n} league matches ${esc(n)} have <strong>${p.now}</strong> points, ${d === 0 ? "the same as" : `<strong>${Math.abs(d)} ${d > 0 ? "more" : "fewer"}</strong> than`} the ${p.prev_points} they had after ${p.n} in ${esc(p.prev_label!)}.</p>`
+}
+
+/** Who is carrying the club: the top league scorers and most used players from the club's Wikipedia table, in words. */
+function contribBlock(c: Ctx, t: Team): string {
+  const k = c.d.per_team[String(t.id)]!.contrib
+  if (!k) return ""
+  const who = (x: { name: string; player: string | null }) => (x.player ? `<a href="${c.href(`player/${x.player}/`)}">${esc(x.name)}</a>` : esc(x.name))
+  const share = (g: number) => (k.share_ok && k.club_goals ? ` (${Math.round((100 * g) / k.club_goals)}% of the club's ${k.club_goals} league goals)` : "")
+  const top = k.scorers[0]
+  const goals = top ? `<li><strong>Goals:</strong> ${k.scorers.map((x) => `${who(x)} ${x.goals}`).join(", ")}. ${who(top)} has scored ${top.goals}${share(top.goals!)}.</li>` : `<li><strong>Goals:</strong> no listed player has scored in the league yet.</li>`
+  const used = k.used.length ? `<li><strong>Most used in the league:</strong> ${k.used.map((x) => `${who(x)} ${x.apps}`).join(", ")} appearances.</li>` : ""
+  return `<h3>Who is carrying the club</h3><ul class="plain">${goals}${used}</ul>
+<p class="muted">From the club's Wikipedia table as of ${k.as_of ? dayLong(k.as_of) : "an unstated date"}, which can be ahead of or behind the match results. <a href="#wapps">Full table</a>.</p>`
 }
 
 export function teamPage(c: Ctx, t: Team): string {
@@ -178,6 +213,9 @@ export function teamPage(c: Ctx, t: Team): string {
   const other = squad.filter((p) => !known.has(p.id))
   const pl = (ps: Player[]) => ps.map((p) => `<tr><th scope="row"><a href="${c.href(`player/${p.url_id}/`)}">${esc(p.name)}</a></th><td>${esc(p.position ?? "Not supplied")}</td><td>${esc(p.nationality ?? "Not supplied")}</td><td>${p.dob ?? "Not supplied"}</td></tr>`).join("")
   const form = d.per_team[String(t.id)]!.form
+  const recent = mine.filter(isDone).slice(-5).reverse(), upcoming = mine.filter((m) => !isDone(m) && m.status !== "POSTPONED" && m.status !== "CANCELLED").slice(0, 5)
+  const hasWiki = d.wiki.pages.some((w) => w.team === t.id && w.status === "ok")
+  const jump = `<nav class="jump" aria-label="On this page"><a href="#chg">What changed</a><a href="#fx">Fixtures</a><a href="#wapps">Appearances</a><a href="#hist">History</a><a href="#sq">Squad</a></nav>`
   const body = `<nav class="crumb" aria-label="Breadcrumb"><a href="${c.href("teams/")}">Clubs</a> / ${esc(t.name)}</nav>
 <section class="club"><div class="sb">${badge(t)}<div><h1>${esc(t.name)}</h1>
 <p class="muted">${[t.venue, t.founded ? `Founded ${t.founded}` : ""].filter(Boolean).map(esc).join(" - ")}</p></div></div>
@@ -185,17 +223,23 @@ export function teamPage(c: Ctx, t: Team): string {
 <div><dt>Form</dt><dd class="form">${form.map((f) => `<i class="f${f}">${f}</i>`).join("") || "No matches"}</dd></div></dl>
 ${row.adjustment ? notice("warn", `Includes a points adjustment of ${signed(row.adjustment)}. See the <a href="${c.href("")}#adj">overview</a> for the reason and evidence.`) : ""}
 ${evidence(c, { what: "Position, points and form from completed league matches.", calc: `${d.calc.points} ${d.calc.form}`, snapshotIds: matchSnaps(c) })}</section>
+${jump}
 ${changeSection(c, t)}
 <section aria-labelledby="fx"><h2 id="fx">Fixtures and results</h2>
+<div class="two"><div><h3>Latest results</h3><ul class="mlist">${recent.map((m) => matchRow(c, m, t.id)).join("") || "<li>No completed matches.</li>"}</ul></div>
+<div><h3>Next fixtures</h3><ul class="mlist">${upcoming.map((m) => matchRow(c, m, t.id)).join("") || "<li>No scheduled fixtures.</li>"}</ul></div></div>
+<details class="more"><summary>All ${mine.length} fixtures and results</summary>
 <div class="filters" id="tfilter"><label><input type="radio" name="tv" value="all" checked> All</label><label><input type="radio" name="tv" value="results"> Results</label><label><input type="radio" name="tv" value="fixtures"> Fixtures</label></div>
-<ul class="mlist" id="tlist">${mine.map((m) => matchRow(c, m, t.id)).join("")}</ul></section>
+<ul class="mlist" id="tlist">${mine.map((m) => matchRow(c, m, t.id)).join("")}</ul></details></section>
 ${wikiClubSection(c, t)}
 ${historySection(c, t)}
 <section aria-labelledby="sq"><h2 id="sq">Squad</h2>
+${hasWiki ? `<p class="muted">Every player with appearances is in the table above. This is the provider's full squad list, with birth dates.</p>` : ""}
+<details class="more"${hasWiki ? "" : " open"}><summary>Squad list (${squad.length} players)</summary>
 ${squad.length ? `<p class="muted">Squad list as last seen ${stamp(squad[0]!.seen ?? d.built_at)}. Provider squad lists can lag real transfers. Shirt numbers come from the appearances table above where a club has one.</p>
 <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(t.name)} squad</caption><thead><tr><th scope="col" class="left">Player</th><th scope="col" class="left">Position</th><th scope="col" class="left">Nationality</th><th scope="col" class="left">Born</th></tr></thead>
 <tbody>${groups.map((x) => pl(x.ps)).join("")}${pl(other)}</tbody></table></div>` : notice("info", "No squad list in the saved data for this club.")}
-${evidence(c, { what: "Squad list as provided.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], fetched: lastOf(c, "teams")?.fetched_at })}</section>`
+${evidence(c, { what: "Squad list as provided.", snapshotIds: [lastOf(c, "teams")?.id ?? ""], fetched: lastOf(c, "teams")?.fetched_at })}</details></section>`
   return page(c, { title: t.name, path: `team/${t.slug}/`, nav: "teams", body })
 }
 
@@ -480,7 +524,7 @@ ${pg.note ? notice("info", esc(pg.note)) : ""}
 <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="sortable" data-sortable><caption class="sr">${esc(t.name)} appearances and goals. Press a column heading to sort.</caption>
 <thead><tr><th scope="col">No.</th>${th("name", "Player", "Player", "left")}<th scope="col" class="left">Pos.</th>${th("lapps", "League apps", "League appearances: starts plus substitute appearances where the editors gave both, otherwise their single figure.")}${th("lgoals", "League goals", "League goals")}${th("apps", "All apps", "Appearances in all competitions listed")}${th("goals", "All goals", "Goals in all competitions listed")}</tr></thead>
 <tbody>${body}</tbody></table></div>
-${notice("info", "Minutes, per-90 figures and shots are not available from this source, so none are shown. A player missing from the list has not appeared, or the editors have not listed them. That is not shown as a zero. Apps are starts plus substitute appearances where the editors gave both; where they wrote a single number, that number is shown as the total and no split is claimed. A dash means the editors left the cell blank, and a total is only shown when every competition has a figure. Unmatched means the row could not be safely linked to a player in the squad list (club, identical full name and agreeing nationality or position are all needed), so it has no player page.")}
+<details class="evidence"><summary>About these figures</summary>${notice("info", "Minutes, per-90 figures and shots are not available from this source, so none are shown. A player missing from the list has not appeared, or the editors have not listed them. That is not shown as a zero. Apps are starts plus substitute appearances where the editors gave both; where they wrote a single number, that number is shown as the total and no split is claimed. A dash means the editors left the cell blank, and a total is only shown when every competition has a figure. Unmatched means the row could not be safely linked to a player in the squad list (club, identical full name and agreeing nationality or position are all needed), so it has no player page.")}</details>
 ${wikiAttribution(c, pg)}
 ${evidence(c, { what: `${rows.length} listed players from the club's season page. ${pg.linked} are matched to players in the squad list by club, identical full name, and agreeing nationality or position.`, calc: "Checked against the match results: no player's league appearances may exceed the matches the club had played by the as-of date, and players' league goals may not exceed the club's goals.", snapshotIds: [pg.snapshot], fetched: pg.fetched_at })}</section>`
 }

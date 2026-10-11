@@ -135,6 +135,8 @@ def export(db_path):
     for p in players.values():
         p["url_id"] = keys[("player", p["id"])]
     wiki_data = _wiki(db, sid, teams, players)
+    movers = _pace_and_movers(per_team, season["label"], teams)
+    _contrib(per_team, wiki_data, table)
     for team, rows_ in wiki_data["clubs"].items():
         pg = next(x for x in wiki_data["pages"] if x["team"] == team)
         for row in rows_:
@@ -165,7 +167,7 @@ def export(db_path):
         source="football-data.org", snapshots=snaps, failures=failures, validation=dict(errors=errors, notes=notes), calc=CALC,
         teams=list(teams.values()), seasons=seasons, h2h=h2h, matches=matches, table=table, adjustments=adjustments, per_team=per_team,
         players=list(players.values()), wiki=wiki_data,
-        history=_history(db, teams), datasets=[dict(r) for r in db.execute('SELECT * FROM dataset ORDER BY source, id')],
+        movers=movers, history=_history(db, teams), datasets=[dict(r) for r in db.execute('SELECT * FROM dataset ORDER BY source, id')],
         people=dict(count=db.execute('SELECT COUNT(*) FROM wiki_person').fetchone()[0], linked=sum(1 for p in players.values() if p.get('career'))),
         coverage=dict(
             match_detail="Score and half-time only. Goals, cards, lineups and match statistics are not available on the free data plan.",
@@ -259,3 +261,48 @@ def _history(db, teams):
     sources = dict(name="openfootball/england", url=openfootball.REPO_URL, licence=openfootball.LICENCE, licence_url=openfootball.LICENCE_URL)
     issues = [dict(r) for r in db.execute("SELECT kind, subject, detail FROM hist_issue ORDER BY kind, subject")]
     return dict(source=sources, seasons=seasons, clubs=clubs, issues=issues)
+
+
+def _pace_and_movers(per_team, cur, teams):
+    """Points after the same number of league matches, now against the latest earlier season the club played (results only, no
+    adjustments). Works from the first matches, unlike the 5 v 5 report. Movers rank clubs on the 5 v 5 delta when every club has
+    10 matches, otherwise on pace, and say which."""
+    for tid, v in per_team.items():
+        now = v["series"].get(cur, [])
+        n = len(now)
+        v["pace"] = None
+        if n < 3 or not teams[tid]["current"]:
+            continue
+        prev = next(((lab, ser) for lab, ser in sorted(v["series"].items(), reverse=True) if lab != cur and len(ser) >= n), None)
+        v["pace"] = dict(n=n, now=now[-1], prev_label=prev[0] if prev else None, prev_points=prev[1][n - 1] if prev else None)
+    cur_ids = [t for t in per_team if teams[t]["current"]]
+    if cur_ids and all(per_team[t]["change"]["status"] == "ok" for t in cur_ids):
+        rows = [dict(team=t, delta=per_team[t]["change"]["delta"]["points"], a=per_team[t]["change"]["latest"]["points"], b=per_team[t]["change"]["previous"]["points"]) for t in cur_ids]
+        basis = "change"
+    else:
+        rows = [dict(team=t, delta=p["now"] - p["prev_points"], a=p["now"], b=p["prev_points"]) for t in cur_ids for p in [per_team[t]["pace"]] if p and p["prev_points"] is not None]
+        basis = "pace"
+    rows.sort(key=lambda r: (-r["delta"], r["team"]))
+    return dict(basis=basis, rows=rows)
+
+
+def _contrib(per_team, wiki_data, table):
+    """Who is carrying a club: the top league scorers and most used players from its usable Wikipedia table. A share of the club's
+    goals is given only when the players' goals do not exceed the club's (an editor can be ahead of our match feed)."""
+    gf = {r["team"]: r["gf"] for r in table}
+    ok = {p["team"]: p for p in wiki_data["pages"] if p["status"] == "ok"}
+    for tid, v in per_team.items():
+        v["contrib"] = None
+        pg, rows = ok.get(tid), wiki_data["clubs"].get(tid) or wiki_data["clubs"].get(str(tid))
+        if not pg or not rows:
+            continue
+        lg = next((i for i, c in enumerate(pg["competitions"]) if "championship" in c.lower()), None)
+        if lg is None:
+            continue
+        cells = [(r, r["comps"][lg]) for r in rows]
+        total = sum(c["goals"] or 0 for _, c in cells)
+        pick = lambda r, c: dict(name=r["name"], player=r["player"], goals=c["goals"], apps=c["apps"])
+        scorers = [pick(r, c) for r, c in sorted(cells, key=lambda x: (-(x[1]["goals"] or 0), x[0]["name"])) if (c["goals"] or 0) > 0][:3]
+        used = [pick(r, c) for r, c in sorted(cells, key=lambda x: (-(x[1]["apps"] or 0), x[0]["name"])) if (c["apps"] or 0) > 0][:3]
+        v["contrib"] = dict(as_of=pg["as_of"], club_goals=gf.get(tid), listed_goals=total, share_ok=gf.get(tid) is not None and 0 < total <= gf[tid],
+                            scorers=scorers, used=used, title=pg["title"], permalink=pg["permalink"], revision=pg["revision"], snapshot=pg["snapshot"])

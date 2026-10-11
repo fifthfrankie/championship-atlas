@@ -45,6 +45,7 @@ async function journey(p: Page, tag: string) {
   await p.goto(url(""))
   ok((await p.title()).includes("Championship"), `${tag}: overview title`)
   ok((await p.locator("#league tbody tr").count()) === 24, `${tag}: 24 clubs in the table`)
+  ok((await p.locator("ol.movers li").count()) >= 2, `${tag}: movers shown above the table`)
   await noOverflow(p, `${tag} overview`)
   await p.screenshot({ path: join(shots, `${tag}-overview.png`), fullPage: false })
 
@@ -62,10 +63,16 @@ async function journey(p: Page, tag: string) {
   await p.waitForURL(/\/team\//)
   ok((await p.locator("h1").innerText()).length > 3, `${tag}: team page has a name`)
   ok((await p.locator("#chg").count()) === 1, `${tag}: change report section present`)
+  const lead = (await p.locator("#chg .lead").count()) ? await p.locator("#chg .lead").innerText() : ""
+  ok(lead === "" || /^After \d+ league matches .* have \d+ points/.test(lead), `${tag}: pace sentence reads properly ("${lead.slice(0, 60)}")`)
+  ok((await p.locator("nav.jump a").count()) === 5, `${tag}: club page has jump links`)
+  const h = await p.evaluate(() => document.documentElement.scrollHeight)
+  ok(h < (tag === "mobile" ? 6500 : 5200), `${tag}: club page height ${h}px is kept in check`)
   await noOverflow(p, `${tag} team`)
   await p.screenshot({ path: join(shots, `${tag}-team.png`), fullPage: true })
 
   // team -> match
+  await p.locator("details.more > summary").first().click()
   await p.locator("#tlist .mrow:not([hidden]) a.teams").first().click()
   await p.waitForURL(/\/match\/\d+\//)
   ok(await p.locator(".scoreboard").isVisible(), `${tag}: match scoreboard visible`)
@@ -75,7 +82,8 @@ async function journey(p: Page, tag: string) {
   // match -> team -> player
   await p.locator(".scoreboard a.side").first().click()
   await p.waitForURL(/\/team\//)
-  await p.locator("#sq ~ div table tbody th a, section[aria-labelledby=sq] tbody th a").first().click()
+  if (!(await p.locator("#sq ~ details").evaluate((e) => (e as HTMLDetailsElement).open))) await p.locator("#sq ~ details > summary").click()
+  await p.locator("#sq ~ details tbody th a").first().click()
   await p.waitForURL(/\/player\/\d+\//)
   ok((await p.locator("body").innerText()).includes("not available"), `${tag}: player page states what is not available`)
   await p.screenshot({ path: join(shots, `${tag}-player.png`), fullPage: true })

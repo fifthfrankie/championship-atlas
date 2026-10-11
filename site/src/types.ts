@@ -42,6 +42,9 @@ export interface History {
   clubs: Record<string, { name: string; team: number | null; seasons: { season: string; position: number; points: number; played: number }[] }>
   issues: { kind: string; subject: string; detail: string }[]
 }
+export interface Pace { n: number; now: number; prev_label: string | null; prev_points: number | null }
+export interface ContribPlayer { name: string; player: string | null; goals: number | null; apps: number | null }
+export interface Contrib { as_of: string | null; club_goals: number | null; listed_goals: number; share_ok: boolean; scorers: ContribPlayer[]; used: ContribPlayer[]; title: string; permalink: string | null; revision: number | null; snapshot: string }
 export interface Data {
   built_at: string; data_as_of: string; transform_version: string; season: string; competition: string; source: string
   snapshots: { id: string; endpoint: string; fetched_at: string }[]
@@ -49,7 +52,8 @@ export interface Data {
   validation: { errors: string[]; notes: string[] }
   calc: Record<string, string>
   teams: Team[]; seasons: SeasonSummary[]; h2h: Meeting[]; matches: Match[]; table: Row[]; adjustments: Adjustment[]
-  per_team: Record<string, { form: string[]; change: Change; history: HistoryRow[]; series: Record<string, number[]> }>
+  per_team: Record<string, { form: string[]; change: Change; history: HistoryRow[]; series: Record<string, number[]>; pace: Pace | null; contrib: Contrib | null }>
+  movers: { basis: "change" | "pace"; rows: { team: number; delta: number; a: number; b: number }[] }
   players: Player[]
   history: History
   datasets: { id: string; source: string; title: string; licence: string; url: string; main_table: string; grain: string; rows: number }[]

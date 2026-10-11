@@ -21,6 +21,8 @@ Do not stop at a plan, scaffold, mockup or passing unit tests.
 - Never use the em dash. Use a plain dash.
 - Use UK English.
 
+- Next scope (M8, 2026-10-11): `docs/m8-brief.md` adds UI/UX and USP work on top of this brief.
+
 ## 1. Product mission
 
 Help Championship supporters answer:

@@ -107,7 +107,7 @@ code { font: .85em ui-monospace, SFMono-Regular, Menlo, monospace; background: v
 .scorers { padding-left: 1.4em } .scorers li { padding: 3px 0 }
 .foot { border-top: 1px solid var(--line); background: var(--surface); padding: 18px 0; font-size: .88rem; color: var(--muted) }
 @media (max-width: 560px) {
-  .hide-s { display: none } th, td { padding: 8px 6px } table { font-size: .9rem }
+  .jump { position: static } .hide-s { display: none } th, td { padding: 8px 6px } table { font-size: .9rem }
   .mrow { grid-template-columns: 1fr auto; grid-template-areas: "when tag" "teams teams" } .mrow .when { grid-area: when } .mrow .teams { grid-area: teams } .mrow .tag { grid-area: tag }
   .when br { display: none } .when small { margin-left: 6px }
 }
@@ -121,3 +121,12 @@ code { font: .85em ui-monospace, SFMono-Regular, Menlo, monospace; background: v
 .chart text { fill: var(--muted); font-size: 11px } .chart .g { stroke: var(--line); stroke-width: 1 } .chart .ax { font-size: 11px }
 .chart .ln { stroke-width: 2; stroke-linejoin: round } .chart .now { stroke: var(--accent); stroke-width: 3.2 } .chart .prev1 { stroke: var(--po) } .chart .prev2 { stroke: var(--d); stroke-dasharray: 5 4 }
 .chart text.now { fill: var(--accent); font-weight: 700; font-size: 12px } .chart text.prev1 { fill: var(--po) } .chart text.prev2 { fill: var(--muted) }
+
+.jump { display: flex; flex-wrap: wrap; gap: 6px 8px; margin: 14px 0; position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 8px 0; border-bottom: 1px solid var(--line) }
+.jump a { padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); text-decoration: none; font-size: .9rem }
+.jump a:hover { border-color: var(--accent) }
+html { scroll-padding-top: 64px }
+.lead { font-size: 1.15rem; margin: 6px 0 12px }
+.more { margin: 10px 0 } .more > summary { cursor: pointer; font-weight: 600; width: fit-content; padding: 6px 0 }
+.movers { list-style: none; padding: 0; margin: 0 } .movers li { padding: 6px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: baseline }
+.movers strong { min-width: 2.4em } .movers strong.up::before { content: "\25B2 "; font-size: .7em } .movers strong.dn::before { content: "\25BC "; font-size: .7em }

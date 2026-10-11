@@ -19,12 +19,12 @@ const data = (): Data => ({
   table: [{ position: 1, team: 1, played: 1, won: 1, drawn: 0, lost: 0, gf: 1, ga: 0, gd: 1, points: 3, adjustment: 0, tied: false },
           { position: 2, team: 2, played: 1, won: 0, drawn: 0, lost: 1, gf: 0, ga: 1, gd: -1, points: 0, adjustment: 0, tied: false }],
   adjustments: [],
-  per_team: { "1": { form: ["W"], change: { status: "insufficient", have: 1, need: 10 }, history: [], series: {} }, "2": { form: ["L"], change: { status: "insufficient", have: 1, need: 10 }, history: [], series: {} } },
+  per_team: { "1": { form: ["W"], change: { status: "insufficient", have: 1, need: 10 }, history: [], series: {}, pace: null, contrib: null }, "2": { form: ["L"], change: { status: "insufficient", have: 1, need: 10 }, history: [], series: {}, pace: null, contrib: null } },
   players: [{ id: 9, name: "Test Player", dob: null, nationality: null, position: null, team: 1, seen: null, scorer: null, url_id: "9001" }],
   coverage: { match_detail: "m", players: "p", history: "h" },
   wiki: { licence: "CC BY-SA 4.0", licence_url: "https://creativecommons.org/licenses/by-sa/4.0/", pages: [], clubs: {}, issues: [] },
   history: { source: { name: "openfootball/england", url: "https://github.com/openfootball/england", licence: "CC0 1.0", licence_url: "https://creativecommons.org/publicdomain/zero/1.0/" }, seasons: [], clubs: {}, issues: [] },
-  people: { count: 0, linked: 0 }, datasets: [],
+  people: { count: 0, linked: 0 }, datasets: [], movers: { basis: "pace", rows: [] },
 })
 
 test("a good build is accepted, a bad one is rejected and the live site is untouched", () => {
@@ -181,4 +181,23 @@ test("results-only seasons and player careers render, with their sources and a v
   assert.match(player, /Senior career/); assert.match(player, /oldid=7/); assert.match(player, /date of birth agrees/)
   assert.match(player, /not given/)                       // a blank appearance count is a dash with text, not a 0
   assert.doesNotMatch(player.split("Senior career")[1]!, /<td>0<\/td><td>0<\/td>/)
+})
+
+test("the club page leads with pace and who is carrying the club, and the overview leads with movers; blanks and bases are stated", () => {
+  const d = data()
+  d.per_team["1"]!.pace = { n: 4, now: 10, prev_label: "2025-26", prev_points: 5 }
+  d.per_team["2"]!.pace = { n: 4, now: 1, prev_label: null, prev_points: null }
+  d.per_team["1"]!.contrib = { as_of: "2026-10-01", club_goals: 8, listed_goals: 7, share_ok: true, scorers: [{ name: "Test Player", player: "9001", goals: 4, apps: 8 }], used: [{ name: "Other Person", player: null, goals: 0, apps: 9 }], title: "t", permalink: null, revision: 1, snapshot: "a".repeat(64) }
+  d.movers = { basis: "pace", rows: [1, 2, 1, 2, 1, 2].map((team, i) => ({ team, delta: 5 - i * 2, a: 10, b: 5 })) }
+  const dir = mkdtempSync(join(tmpdir(), "atlas-"))
+  generate(d, dir, "/"); assert.deepEqual(check(d, dir, "/"), [])
+  const t1 = readFileSync(join(dir, "team/aaa/index.html"), "utf8")
+  assert.match(t1, /5 more<\/strong> than the 5 they had after 4 in 2025-26/)
+  assert.match(t1, /Test Player<\/a> has scored 4 \(50% of the club's 8 league goals\)/)
+  assert.ok(t1.indexOf('id="chg"') < t1.indexOf('id="fx"'))
+  assert.match(t1, /class="jump"/); assert.match(t1, /<details class="more"><summary>All 1 fixtures/)
+  assert.match(readFileSync(join(dir, "team/bbb/index.html"), "utf8"), /no earlier Championship season to compare/)   // no invented comparison
+  const home = readFileSync(join(dir, "index.html"), "utf8")
+  assert.ok(home.indexOf('id="mov"') < home.indexOf('id="table"'))
+  assert.match(home, /same number of league matches/)
 })

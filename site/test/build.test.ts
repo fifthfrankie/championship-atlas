@@ -23,6 +23,8 @@ const data = (): Data => ({
   players: [{ id: 9, name: "Test Player", dob: null, nationality: null, position: null, team: 1, seen: null, scorer: null, url_id: "9001" }],
   coverage: { match_detail: "m", players: "p", history: "h" },
   wiki: { licence: "CC BY-SA 4.0", licence_url: "https://creativecommons.org/licenses/by-sa/4.0/", pages: [], clubs: {}, issues: [] },
+  history: { source: { name: "openfootball/england", url: "https://github.com/openfootball/england", licence: "CC0 1.0", licence_url: "https://creativecommons.org/publicdomain/zero/1.0/" }, seasons: [], clubs: {}, issues: [] },
+  people: { count: 0, linked: 0 }, datasets: [],
 })
 
 test("a good build is accepted, a bad one is rejected and the live site is untouched", () => {
@@ -141,7 +143,7 @@ test("Wikipedia appearance tables: shown with as-of date, licence and unmatched 
   assert.match(linked, /Appearances and goals, as of 19 September 2026/); assert.match(linked, /CC BY-SA 4\.0/)
   assert.match(linked, /<td>6<\/td><td>4<\/td><td>2<\/td><td>1<\/td>/)         // apps, starts, subs, goals
   assert.match(linked, /<td>3<\/td><td>Not split<\/td><td>Not split<\/td><td>0<\/td>/)   // a single figure is not given a split
-  assert.match(L.page(c, { title: "t", path: "", body: "" }), /Appearance tables adapted from Wikipedia, licensed <a [^>]*>CC BY-SA 4\.0/)   // footer, site-wide
+  assert.match(L.page(c, { title: "t", path: "", body: "" }), /Appearance and career tables adapted from Wikipedia, licensed <a [^>]*>CC BY-SA 4\.0/)   // footer, site-wide
   d.wiki.pages.forEach((w) => { w.status = "rejected" })
   assert.doesNotMatch(L.page(c, { title: "t", path: "", body: "" }), /adapted from Wikipedia/)          // no tables shown, no licence claim
   d.wiki.pages.forEach((w, i) => { w.status = i === 0 ? "ok" : "rejected" })
@@ -160,4 +162,23 @@ test("with no Wikipedia data at all the site still builds and player pages keep 
   assert.deepEqual(check(data(), out, "/"), [])
   const html = readFileSync(join(out, "player/9001/index.html"), "utf8")
   assert.match(html, /No appearance figures for Test Player/)
+})
+
+test("results-only seasons and player careers render, with their sources and a visible blank", () => {
+  const d = data()
+  const row = (position: number, club: string, team: number | null, points: number, adjustment = 0) => ({ position, club, name: club, team, played: 2, won: 1, drawn: 0, lost: 1, gf: 2, ga: 1, gd: 1, points, adjustment, tied: false })
+  d.history.seasons = [{ label: "2005-06", complete: true, matches: 552, compared: 0, disagree: 0, table: [row(1, "aaa", 1, 3), row(2, "old club", null, 3 - 3, -3)], playoff: [], adjustments: [{ club: "old club", points: -3, title: "2005\u201306 Football League Championship", revision: 5, snapshot: "b".repeat(64) }], snapshot: "b".repeat(64), fetched_at: "2026-10-10T11:00:00Z", path: "2005-06/2-championship.txt" }]
+  d.history.clubs = { aaa: { name: "Team AAA", team: 1, seasons: [{ season: "2005-06", position: 1, points: 3, played: 2 }] } }
+  d.players[0]!.career = { page: "Test Player", revision: 7, permalink: "https://en.wikipedia.org/w/index.php?title=Test_Player&oldid=7", dob: "2000-01-01", dob_confirmed: true, dob_note: null, basis: "name", birth_place: "Leeds", height_cm: null, snapshot: "c".repeat(64), fetched_at: "2026-10-10T11:00:00Z",
+    senior: [{ years: "2019\u20132021", club: "Somewhere (loan)", club_title: null, loan: true, apps: null, goals: 0 }], youth: [], national: [] }
+  const dir = mkdtempSync(join(tmpdir(), "atlas-"))
+  generate(d, dir, "/"); assert.deepEqual(check(d, dir, "/"), [])
+  const season = readFileSync(join(dir, "season/2005-06/index.html"), "utf8")
+  assert.match(season, /Results only/); assert.match(season, /old club/); assert.match(season, /oldid=5/); assert.match(season, /CC0 1\.0/)
+  const team1 = readFileSync(join(dir, "team/aaa/index.html"), "utf8")
+  assert.match(team1, /Earlier seasons since 2000-01/); assert.match(team1, /season\/2005-06\//)
+  const player = readFileSync(join(dir, "player/9001/index.html"), "utf8")
+  assert.match(player, /Senior career/); assert.match(player, /oldid=7/); assert.match(player, /date of birth agrees/)
+  assert.match(player, /not given/)                       // a blank appearance count is a dash with text, not a 0
+  assert.doesNotMatch(player.split("Senior career")[1]!, /<td>0<\/td><td>0<\/td>/)
 })

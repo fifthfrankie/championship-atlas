@@ -130,7 +130,18 @@ def _name(t):
 
 
 def parse_club_season(body: bytes):
-    """-> dict(title, revision, as_of, competitions, rows). Raises ValueError on anything unexpected."""
+    """-> dict(title, revision, as_of, competitions, rows). Tries the Efs template family, then a hand-made table with a
+    labelled header. Raises ValueError on anything unexpected."""
+    try:
+        return _parse_efs(body)
+    except ValueError as efs:
+        try:
+            return parse_hand_table(body)
+        except ValueError as hand:
+            raise ValueError(f"{efs}; hand-made table: {hand}") from None
+
+
+def _parse_efs(body: bytes):
     html = body.decode("utf-8", "replace")
     p = _Tables()
     p.feed(html)
@@ -223,3 +234,184 @@ def season_page_title(club_title, season_label):
     """('Swansea City A.F.C.', '2026-27') -> '2026–27 Swansea City A.F.C. season'."""
     a, b = season_label.split("-")
     return f"{a}–{b} {club_title} season"
+
+
+# ---------------------------------------------------------------- player articles (infobox career tables)
+PLAYER_ENDPOINT = "wiki-player"
+MAX_PLAYER_REQUESTS_PER_RUN = 150     # about 5 minutes at the 2 second pace; the rest waits for the next run
+PLAYER_MAX_AGE_DAYS = 30              # careers change slowly: a good copy younger than this is not fetched again
+INFOBOX = {"infobox football biography", "infobox footballer"}
+_REF = re.compile(r"<ref[^>]*/>|<ref[^>]*>.*?</ref>|<!--.*?-->", re.S)
+_TPL = re.compile(r"\{\{[^{}]*\}\}")
+
+
+def _clean(wt):
+    """Wikitext cell -> plain text: references, comments and templates dropped, links reduced to their shown text."""
+    s = _REF.sub("", wt or "")
+    for _ in range(3):
+        s = _TPL.sub("", s)
+    s = re.sub(r"\[\[(?:[^\]|]*\|)?([^\]]*)\]\]", r"\1", s)
+    return re.sub(r"''+", "", s).replace("→", "").strip()
+
+
+def _dob(wt):
+    """'{{birth date and age|2003|7|21|df=y}}' -> '2003-07-21'. None for a missing or partial date: never guessed."""
+    m = re.search(r"\{\{[^|{}]*\|(?:[a-z]+=[^|{}]*\|)*(\d{4})\|(\d{1,2})\|(\d{1,2})", wt or "", re.I)
+    if not m:
+        return None
+    try:
+        return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3))).strftime("%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _height_cm(wt):
+    s = _REF.sub("", wt or "")
+    m = re.search(r"\bm\s*=\s*(\d\.\d{1,2})", s) or re.search(r"\b(\d\.\d{2})\s*m\b", s)
+    if m:
+        return round(float(m.group(1)) * 100)
+    m = re.search(r"\bft\s*=\s*(\d)\s*\|\s*in\s*=\s*(\d{1,2})", s) or re.search(r"(\d)\s*ft\s*(\d{1,2})\s*in", s)
+    if m:
+        return round((int(m.group(1)) * 12 + int(m.group(2))) * 2.54)
+    return None
+
+
+def _career(params, years_k, clubs_k, caps_k, goals_k):
+    out = []
+    for i in range(1, 40):
+        years, club = _wt(params, f"{years_k}{i}"), _wt(params, f"{clubs_k}{i}")
+        if not years and not club:
+            break
+        title, shown = link_title(_REF.sub("", club))
+        caps, goals = _clean(_wt(params, f"{caps_k}{i}")), _clean(_wt(params, f"{goals_k}{i}"))
+        out.append(dict(years=_clean(years), club=_clean(club), club_title=title, loan=bool(re.search(r"\bloan\b", club, re.I)),
+                        apps=_int(caps), goals=_int(goals), apps_raw=caps, goals_raw=goals))
+    return out
+
+
+def parse_player(body: bytes):
+    """-> dict(title, revision, dob, birth_place, height_cm, position, senior, youth, national). ValueError when the page
+    has no football infobox (a disambiguation page, a non-footballer). A blank or unreadable figure is None, never zero."""
+    html = body.decode("utf-8", "replace")
+    p = _Tables()
+    p.feed(html)
+    m = re.search(r'"wgPageName":"([^"]+)"', html)
+    if not m or p.revision is None:
+        raise ValueError("page name or revision id not found")
+    for _tag, parsed, _before in p.mw:
+        for t in _templates(parsed):
+            if _name(t) in INFOBOX:
+                pr = t["params"]
+                return dict(
+                    title=json.loads('"' + m.group(1) + '"').replace("_", " "), revision=p.revision,
+                    dob=_dob(_wt(pr, "birth_date")), birth_place=_clean(_wt(pr, "birth_place")) or None,
+                    height_cm=_height_cm(_wt(pr, "height")), position=_clean(_wt(pr, "position")) or None,
+                    senior=_career(pr, "years", "clubs", "caps", "goals"),
+                    youth=_career(pr, "youthyears", "youthclubs", "youthcaps", "youthgoals"),
+                    national=_career(pr, "nationalyears", "nationalteam", "nationalcaps", "nationalgoals"))
+    raise ValueError("no football biography infobox on this page")
+
+
+# ---------------------------------------------------------------- finished-season league tables
+TABLE_ENDPOINT = "wiki-final-table"
+MIN_TABLE_ROWS = 20        # a league table has 24 rows; fewer means a partial or different table
+
+
+def league_page_title(year):
+    """The league's season article: '2021–22 EFL Championship' (named Football League First Division before 2004-05 and
+    Football League Championship before 2016-17)."""
+    name = "Football League First Division" if year < 2004 else "Football League Championship" if year < 2016 else "EFL Championship"
+    return f"{year}–{(year + 1) % 100:02d} {name}"
+
+
+def _cell_text(html):
+    return html_unescape(re.sub(r"<[^>]+>", "", re.sub(r"<sup.*?</sup>", "", html, flags=re.S))).replace("−", "-").strip()
+
+
+def parse_final_table(body: bytes):
+    """-> dict(title, revision, rows) with rows (pos, name, article, played, won, drawn, lost, gf, ga, points) from the first league
+    table (a wikitable whose header has Pts). The rendered HTML is read, not the Lua that makes it. ValueError on anything unexpected."""
+    html = body.decode("utf-8", "replace")
+    m = re.search(r'"wgPageName":"([^"]+)"', html)
+    r = re.search(r'"wgRevisionId":(\d+)', html)
+    if not m or not r:
+        raise ValueError("page name or revision id not found")
+    for t in re.findall(r'<table[^>]*class="[^"]*wikitable[^"]*"[^>]*>(.*?)</table>', html, flags=re.S):
+        trs = re.findall(r"<tr[^>]*>(.*?)</tr>", t, flags=re.S)
+        if not trs or not re.search(r">\s*Pts\s*<|Points", trs[0]) or not re.search(r"Pld|Played", trs[0]):
+            continue
+        rows = []
+        for tr in trs[1:]:
+            cells = re.findall(r"<t([dh])[^>]*>(.*?)</t\1>", tr, flags=re.S)
+            if len(cells) < 10:
+                continue
+            nums = []
+            for _, c in cells[2:10]:
+                x = _cell_text(c).lstrip("+")
+                if not re.fullmatch(r"-?\d+", x):
+                    break
+                nums.append(int(x))
+            else:
+                a = re.search(r'<a [^>]*title="([^"]+)"', cells[1][1])
+                rows.append(dict(pos=_int(_cell_text(cells[0][1])), name=re.sub(r"\s*\([^)]*\)\s*$", "", _cell_text(cells[1][1])), article=html_unescape(a.group(1)) if a else None,
+                                 played=nums[0], won=nums[1], drawn=nums[2], lost=nums[3], gf=nums[4], ga=nums[5], points=nums[7]))
+        if len(rows) >= MIN_TABLE_ROWS:
+            return dict(title=json.loads('"' + m.group(1) + '"').replace("_", " "), revision=int(r.group(1)), rows=rows)
+    raise ValueError("no league table with Pts found")
+
+
+# ---------------------------------------------------------------- hand-made appearance tables
+def _span(attrs, name):
+    m = re.search(rf'{name}="(\d+)"', attrs)
+    return int(m.group(1)) if m else 1
+
+
+def parse_hand_table(body: bytes):
+    """A wikitable with a labelled header: leading columns (No., Pos., optional Nat., Name), then one pair of columns (Apps, Goals) per
+    competition, then 'Total'. Columns are located by their header text and colspan, never by position alone. Raises ValueError if the
+    header is not exactly that shape, so a layout we do not understand is rejected, not guessed."""
+    html = body.decode("utf-8", "replace")
+    m = re.search(r'"wgPageName":"([^"]+)"', html)
+    r = re.search(r'"wgRevisionId":(\d+)', html)
+    if not m or not r:
+        raise ValueError("page name or revision id not found")
+    for mt in re.finditer(r'<table[^>]*class="[^"]*wikitable[^"]*"[^>]*>(.*?)</table>', html, flags=re.S):
+        trs = re.findall(r"<tr[^>]*>(.*?)</tr>", mt.group(1), flags=re.S)
+        first = re.findall(r"<t([dh])([^>]*)>(.*?)</t\1>", trs[0], flags=re.S) if trs else []
+        heads = [_cell_text(c[2]).split("</span>")[0].split("\n")[0] for c in first]
+        if "Name" not in heads or not any(h == "Championship" for h in heads):
+            continue
+        name_idx = heads.index("Name")
+        comps, widths = [], []
+        for (_, attrs, _c), h in zip(first[name_idx + 1:], heads[name_idx + 1:]):
+            if h in ("Total", "Discipline"):
+                break
+            if _span(attrs, "colspan") != 2:
+                raise ValueError(f"competition {h!r} does not span an Apps and a Goals column")
+            comps.append(h)
+        if not comps or comps[0] != "Championship":
+            raise ValueError("the first competition column is not the Championship")
+        pre = html[max(0, mt.start() - 6000):mt.start()]
+        found = _AS_OF.findall(pre) or re.findall(r"(?:[Uu]pdated|[Cc]orrect)[^<]{0,40}?(\d{1,2}\s+[A-Za-z]+\s+\d{4})", pre)
+        rows = []
+        for tr in trs:
+            cells = re.findall(r"<t([dh])[^>]*>(.*?)</t\1>", tr, flags=re.S)
+            if len(cells) < name_idx + 1 + 2 * len(comps) or not _NUM.match(_cell_text(cells[0][1])):
+                continue
+            shown = _cell_text(cells[name_idx][1])
+            # the cell can hold a flag link before the name, so take the link whose text IS the name
+            link = next((html_unescape(t) for t, txt in re.findall(r'<a [^>]*title="([^"]+)"[^>]*>(.*?)</a>', cells[name_idx][1], flags=re.S)
+                         if _cell_text(txt) == shown), None)
+            per = []
+            for c in range(len(comps)):
+                apps, goals = _cell_text(cells[name_idx + 1 + 2 * c][1]), _cell_text(cells[name_idx + 2 + 2 * c][1])
+                starts, subs, plain = parse_count(apps)
+                per.append(dict(competition=comps[c], starts=starts, subs=subs, plain=plain, goals=_int(goals), apps_raw=apps, goals_raw=goals))
+            rows.append(dict(player_title=link, name=shown, loaned_in=False,
+                             shirt=_int(_cell_text(cells[0][1])), pos=_cell_text(cells[1][1]) or None, nat=None, competitions=per))
+        if len(rows) < 15:
+            raise ValueError(f"only {len(rows)} player rows read")
+        as_of_text = found[-1] if found else None
+        return dict(title=json.loads('"' + m.group(1) + '"').replace("_", " "), revision=int(r.group(1)), as_of=parse_as_of(as_of_text),
+                    as_of_text=as_of_text, competitions=comps, rows=rows)
+    raise ValueError("no wikitable with Name and Championship columns")

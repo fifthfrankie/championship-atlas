@@ -1,7 +1,7 @@
 """Export everything the static site needs as one JSON document. All derived numbers are computed here, once."""
 import json, re, sqlite3
 from datetime import datetime, timezone
-from . import fdorg, replay, validate, wiki
+from . import fdorg, openfootball, replay, standings, validate, wiki
 
 LIVE = {"IN_PLAY", "PAUSED"}
 PENDING = {"SCHEDULED", "TIMED"}
@@ -145,8 +145,9 @@ def export(db_path):
                 target["wiki"] = dict(team=team, as_of=pg["as_of"], revision=pg["revision"], permalink=pg["permalink"], title=pg["title"],
                                       snapshot=pg["snapshot"], fetched_at=pg["fetched_at"], note=pg["note"], shirt=row["shirt"],
                                       loaned_in=row["loaned_in"], comps=row["comps"], apps_total=row["apps_total"], goals_total=row["goals_total"])
+    _careers(db, sid, players)
     snaps = [dict(r) for r in db.execute(
-        "SELECT id, endpoint, fetched_at FROM snapshot WHERE http_status=200 ORDER BY fetched_at, id")]
+        "SELECT id, endpoint, fetched_at FROM snapshot WHERE http_status=200 AND source=? ORDER BY fetched_at, id", (fdorg.SOURCE,))]
     failures = [dict(r) for r in db.execute(
         """SELECT f.endpoint, f.params, f.http_status, f.fetched_at,
                   EXISTS (SELECT 1 FROM fetch_log g WHERE g.http_status=200 AND g.endpoint=f.endpoint AND g.params=f.params
@@ -164,6 +165,8 @@ def export(db_path):
         source="football-data.org", snapshots=snaps, failures=failures, validation=dict(errors=errors, notes=notes), calc=CALC,
         teams=list(teams.values()), seasons=seasons, h2h=h2h, matches=matches, table=table, adjustments=adjustments, per_team=per_team,
         players=list(players.values()), wiki=wiki_data,
+        history=_history(db, teams), datasets=[dict(r) for r in db.execute('SELECT * FROM dataset ORDER BY source, id')],
+        people=dict(count=db.execute('SELECT COUNT(*) FROM wiki_person').fetchone()[0], linked=sum(1 for p in players.values() if p.get('career'))),
         coverage=dict(
             match_detail="Score and half-time only. Goals, cards, lineups and match statistics are not available on the free data plan.",
             players="Squad lists and the provider's top 10 scorers, plus appearances and goals from Wikipedia editors' tables for most clubs, each with its own as-of date. No minutes, no match-by-match data and no per-90 figures.",
@@ -204,3 +207,55 @@ def _wiki(db, sid, teams, players):
         clubs.setdefault(team, []).append(row)
     issues = [dict(r) for r in db.execute("SELECT kind, subject, detail FROM wiki_issue ORDER BY kind, subject")]
     return dict(licence=wiki.LICENCE, licence_url=wiki.LICENCE_URL, pages=list(pages.values()), clubs=clubs, issues=issues)
+
+
+def _careers(db, sid, players):
+    """Attach each linked player's Wikipedia career table (senior, youth, national) to the player. Only players the link rule
+    joined to an article, at the club the squad list gives them."""
+    by_id = {p["id"]: p for p in players.values()}
+    for r in db.execute("""SELECT l.player_id, l.team_id, b.basis, b.dob_confirmed, b.dob_note, w.title, w.page_title, w.revision_id, w.dob, w.birth_place, w.height_cm,
+                                  w.position, w.snapshot_id, w.fetched_at
+                           FROM wiki_link l JOIN wiki_link_basis b USING (season_id, team_id, row_no)
+                           JOIN (SELECT season_id, team_id, row_no, MAX(player_title) AS t FROM wiki_appearance GROUP BY season_id, team_id, row_no) a
+                             USING (season_id, team_id, row_no)
+                           JOIN wiki_person w ON w.title=a.t WHERE l.season_id=?""", (sid,)):
+        p = by_id.get(r["player_id"])
+        if p is None or p["team"] != r["team_id"]:
+            continue
+        kinds = {k: [dict(years=c["years"], club=c["club"], club_title=c["club_title"], loan=bool(c["loan"]), apps=c["apps"], goals=c["goals"])
+                     for c in db.execute("SELECT * FROM wiki_career WHERE title=? AND kind=? ORDER BY row_no", (r["title"], k))]
+                 for k in ("senior", "youth", "national")}
+        p["career"] = dict(page=r["page_title"], revision=r["revision_id"], permalink=f"https://en.wikipedia.org/w/index.php?title={r['page_title'].replace(' ', '_')}&oldid={r['revision_id']}",
+                           dob=r["dob"], dob_confirmed=bool(r["dob_confirmed"]), dob_note=r["dob_note"], basis=r["basis"], birth_place=r["birth_place"], height_cm=r["height_cm"],
+                           snapshot=r["snapshot_id"], fetched_at=r["fetched_at"], **kinds)
+
+
+def _history(db, teams):
+    """Second-tier seasons since 2000-01 from openfootball/england (CC0). Tables are calculated here from the results with the same
+    rule as the current season; a points deduction is applied only when the final Wikipedia table evidences it (hist_adjustment)."""
+    seasons, by_club = [], {}
+    names = {r["key"]: dict(name=r["name"], team=r["team_id"]) for r in db.execute("SELECT * FROM hist_club")}
+    adj = {}
+    for r in db.execute("SELECT * FROM hist_adjustment"):
+        adj.setdefault(r["season"], {})[r["club_key"]] = dict(points=r["points"], title=r["title"], revision=r["revision_id"], snapshot=r["snapshot_id"])
+    for hs in db.execute("SELECT * FROM hist_season ORDER BY season DESC"):
+        label = hs["season"]
+        ms = db.execute("SELECT * FROM hist_match WHERE season=? AND kind='league' ORDER BY date, id", (label,)).fetchall()
+        keys = sorted({m["home_key"] for m in ms} | {m["away_key"] for m in ms})
+        a = adj.get(label, {})
+        rows = standings.table(keys, [(m["home_key"], m["away_key"], m["hg"], m["ag"]) for m in ms], [(k, v["points"]) for k, v in a.items()])
+        table = [dict(position=i, club=r.team_id, name=names[r.team_id]["name"], team=names[r.team_id]["team"], played=r.played, won=r.won, drawn=r.drawn,
+                      lost=r.lost, gf=r.gf, ga=r.ga, gd=r.gd, points=r.points, adjustment=r.adjustment, tied=r.tied) for i, r in enumerate(rows, 1)]
+        playoff = [dict(stage=m["stage"], date=m["date"], home=names[m["home_key"]]["name"], away=names[m["away_key"]]["name"], hg=m["hg"], ag=m["ag"],
+                        aet=bool(m["aet"]), pen_h=m["pen_h"], pen_a=m["pen_a"]) for m in db.execute(
+            "SELECT * FROM hist_match WHERE season=? AND kind='playoff' ORDER BY date, id", (label,))]
+        complete = bool(ms) and len(ms) == len(keys) * (len(keys) - 1)
+        seasons.append(dict(label=label, complete=complete, matches=len(ms), compared=hs["compared"], disagree=hs["disagree"], table=table, playoff=playoff,
+                            adjustments=[dict(club=names[k]["name"], **v) for k, v in sorted(a.items())], snapshot=hs["snapshot_id"], fetched_at=hs["fetched_at"], path=hs["path"]))
+        if complete:
+            for r in table:
+                by_club.setdefault(r["club"], []).append(dict(season=label, position=r["position"], points=r["points"], played=r["played"]))
+    clubs = {k: dict(name=v["name"], team=v["team"], seasons=by_club.get(k, [])) for k, v in names.items() if by_club.get(k)}
+    sources = dict(name="openfootball/england", url=openfootball.REPO_URL, licence=openfootball.LICENCE, licence_url=openfootball.LICENCE_URL)
+    issues = [dict(r) for r in db.execute("SELECT kind, subject, detail FROM hist_issue ORDER BY kind, subject")]
+    return dict(source=sources, seasons=seasons, clubs=clubs, issues=issues)

@@ -18,7 +18,7 @@ export interface SeasonSummary {
 export interface Meeting { season: string; kickoff: string | null; home: number; away: number; hg: number; ag: number }
 export interface HistoryRow { season: string; position: number; points: number; played: number; gd: number; adjustment: number }
 export interface Scorer { rank: number; played: number | null; goals: number | null; assists: number | null; penalties: number | null; fetched_at: string; snapshot: string }
-export interface Player { id: number; name: string; dob: string | null; nationality: string | null; position: string | null; team: number; seen: string | null; scorer: Scorer | null; url_id: string; wiki?: PlayerWiki }
+export interface Player { id: number; name: string; dob: string | null; nationality: string | null; position: string | null; team: number; seen: string | null; scorer: Scorer | null; url_id: string; wiki?: PlayerWiki; career?: PlayerCareer }
 export interface WikiComp { competition: string; apps: number | null; starts: number | null; subs: number | null; split: boolean; goals: number | null; blank: boolean }
 export interface WikiRow { row_no: number; team: number; name: string; shirt: number | null; pos: string | null; nat: string | null; loaned_in: boolean; comps: WikiComp[]; apps_total: number | null; goals_total: number | null; player: string | null }
 export interface WikiPage {
@@ -26,6 +26,22 @@ export interface WikiPage {
   fetched_at: string; snapshot: string; competitions: string[]; permalink: string | null; rows: number; linked: number
 }
 export interface PlayerWiki { team: number; as_of: string | null; revision: number | null; permalink: string | null; title: string; snapshot: string; fetched_at: string; note: string | null; shirt: number | null; loaned_in: boolean; comps: WikiComp[]; apps_total: number | null; goals_total: number | null }
+export interface CareerRow { years: string; club: string; club_title: string | null; loan: boolean; apps: number | null; goals: number | null }
+export interface PlayerCareer {
+  page: string; revision: number; permalink: string; dob: string | null; dob_confirmed: boolean; dob_note: string | null; basis: "name" | "dob"; birth_place: string | null
+  height_cm: number | null; snapshot: string; fetched_at: string; senior: CareerRow[]; youth: CareerRow[]; national: CareerRow[]
+}
+export interface HistRow { position: number; club: string; name: string; team: number | null; played: number; won: number; drawn: number; lost: number; gf: number; ga: number; gd: number; points: number; adjustment: number; tied: boolean }
+export interface HistPlayoff { stage: string; date: string; home: string; away: string; hg: number; ag: number; aet: boolean; pen_h: number | null; pen_a: number | null }
+export interface HistSeason {
+  label: string; complete: boolean; matches: number; compared: number; disagree: number; table: HistRow[]; playoff: HistPlayoff[]
+  adjustments: { club: string; points: number; title: string; revision: number; snapshot: string }[]; snapshot: string; fetched_at: string; path: string
+}
+export interface History {
+  source: { name: string; url: string; licence: string; licence_url: string }; seasons: HistSeason[]
+  clubs: Record<string, { name: string; team: number | null; seasons: { season: string; position: number; points: number; played: number }[] }>
+  issues: { kind: string; subject: string; detail: string }[]
+}
 export interface Data {
   built_at: string; data_as_of: string; transform_version: string; season: string; competition: string; source: string
   snapshots: { id: string; endpoint: string; fetched_at: string }[]
@@ -35,6 +51,9 @@ export interface Data {
   teams: Team[]; seasons: SeasonSummary[]; h2h: Meeting[]; matches: Match[]; table: Row[]; adjustments: Adjustment[]
   per_team: Record<string, { form: string[]; change: Change; history: HistoryRow[]; series: Record<string, number[]> }>
   players: Player[]
+  history: History
+  datasets: { id: string; source: string; title: string; licence: string; url: string; main_table: string; grain: string; rows: number }[]
+  people: { count: number; linked: number }
   wiki: { licence: string; licence_url: string; pages: WikiPage[]; clubs: Record<string, WikiRow[]>; issues: { kind: string; subject: string; detail: string }[] }
   coverage: { match_detail: string; players: string; history: string }
 }

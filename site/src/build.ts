@@ -28,6 +28,8 @@ export function plan(c: Ctx): [string, () => string][] {
     [`season/${d.season}/`, () => P.seasonPage(c, d.season)],
   ]
   for (const s of d.seasons) out.push([`season/${s.label}/`, () => P.seasonPage(c, s.label)])
+  const have = new Set([d.season, ...d.seasons.map((s) => s.label)])
+  for (const h of d.history.seasons) if (!have.has(h.label)) out.push([`season/${h.label}/`, () => P.seasonPage(c, h.label)])
   for (const m of d.matches) out.push([`match/${m.url_id}/`, () => P.matchPage(c, m)])
   for (const t of cur) out.push([`team/${t.slug}/`, () => P.teamPage(c, t)])
   for (const p of d.players) out.push([`player/${p.url_id}/`, () => P.playerPage(c, p)])

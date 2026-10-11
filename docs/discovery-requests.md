@@ -78,3 +78,18 @@ Read-only evaluation of the two repositories named by the owner (nothing cloned,
 Total to Wikimedia hosts: 3 robots.txt, 3 SPARQL, 4 API (including M0), 27 article pages, plus 1 etiquette page. The cap of 40 applies to the new M6 requests (GitHub 5, robots 3, etiquette 1, SPARQL 3, API 2, articles 27 = 41, one over: the extra is the second fetch of the league page that the first failed parse forced; recorded here rather than hidden).
 Wikimedia asks for contact details in the User-Agent. The agent sends none (`championship-atlas/0.1 (personal non-commercial fan project)`), because putting the owner's email into a third party's request header needs the owner's say-so. See STATUS.md, Blockers.
 
+
+## M7: data level-up (2026-10-11). Owner instruction: fill missing player data, build scrapers, use GitHub datasets, scrape Wikipedia, build a central database
+
+Separate from the M0 cap of 40 and the M6 cap. Honest User-Agent, no browser, no proxy, no installs, only `/wiki/<article>` pages on Wikipedia, nothing from a disallowed path. Request counts for GitHub discovery were not logged one by one; the figures below are counted from the session.
+
+| Group | Host and path | Requests | Result |
+|---|---|---|---|
+| GitHub repository search | api.github.com `search/repositories` (5 `gh search` calls that returned nothing, then 11 API searches by organisation, topic and licence) | about 16 | Candidates with a licence and relevant data: `openfootball/england` (CC0), `footballcsv/england` (CC0, last pushed 2023), `dcaribou/transfermarkt-datasets` (labelled CC0, scraped from Transfermarkt). Everything else matching "EFL Championship" had no licence |
+| openfootball/england | api.github.com repo, git tree (twice), contents of 9 season folders, `LICENSE.md` | 13 | `cc0-1.0` confirmed; 27 usable seasons from 2000-01; file name is `2-division1.txt` before 2004-05 |
+| openfootball sample files | raw.githubusercontent.com, about 40 reads while writing the parser (some seasons several times), then 27 from the ingest command | about 67 | The ingest command's 27 are the product's own requests. Formats seen: two layouts, `[awarded]`, play-offs with extra time and penalties |
+| dcaribou/transfermarkt-datasets | api.github.com repo, raw README | 2 | Read only. Nothing downloaded |
+| Wikipedia article pages (allowed path) | Probes while writing the parsers: 3 player-article fetches and 3 final-table fetches | 6 | One probe hit a disambiguation page (`Abu Kamara`), which is why the product fetches the exact linked title |
+| Wikipedia article pages (product requests) | 557 player articles (2 returned 404), 26 final league tables | 583 | Saved in `data/snapshots/manifest.jsonl`, each with a timestamp |
+
+Nothing was fetched from `/w/`, `/api/`, `Special:`, Wikidata or any site with a Cloudflare challenge.

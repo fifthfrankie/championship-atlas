@@ -20,7 +20,7 @@ jobs:
   build:
     if: ${{ vars.PUBLISH_ENABLED == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15            # runtime cap
+    timeout-minutes: 30            # runtime cap; the first run after a cold cache fetches ~27 results files, ~26 final tables and up to 150 player articles at a polite pace
     permissions:
       contents: read
       actions: write               # lets the keepalive step re-enable this schedule
@@ -51,6 +51,8 @@ jobs:
           # Wikipedia appearance tables, on unless the repository variable WIKI_ENABLED is 'false'. Refreshed at most weekly in code.
           # Never tried from a GitHub runner: a failure there is logged on the status page and does not fail the run.
           ATLAS_WIKI: ${{ vars.WIKI_ENABLED == 'false' && '0' || '1' }}
+          # CC0 results since 2000-01 from openfootball/england (raw.githubusercontent.com), on unless OPENFOOTBALL_ENABLED is 'false'.
+          ATLAS_OPENFOOTBALL: ${{ vars.OPENFOOTBALL_ENABLED == 'false' && '0' || '1' }}
         run: |
           printf 'FOOTBALL_DATA_ORG_KEY="%s"\n' "$KEY" > .env
           make ingest

@@ -48,7 +48,8 @@ CREATE TABLE source_id (
 CREATE TABLE standings_adjustment (
   id INTEGER PRIMARY KEY, season_id INTEGER NOT NULL REFERENCES season(id),
   team_id INTEGER NOT NULL REFERENCES team(id), points INTEGER NOT NULL,
-  reason TEXT NOT NULL, evidence_url TEXT NOT NULL
+  reason TEXT NOT NULL, evidence_url TEXT NOT NULL,
+  origin TEXT NOT NULL DEFAULT 'owner' CHECK (origin IN ('owner','wikipedia'))   -- wikipedia: read from a final table in replay, the provider may omit it
 );
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
@@ -101,3 +102,47 @@ CREATE TABLE wiki_link (
   player_id INTEGER NOT NULL REFERENCES player(id), PRIMARY KEY (season_id, team_id, row_no)
 );
 CREATE TABLE wiki_issue (kind TEXT NOT NULL, subject TEXT NOT NULL, detail TEXT NOT NULL);
+
+-- Wikipedia player articles (CC BY-SA 4.0), keyed by the title the club table linked to. The infobox gives a date of birth and
+-- the career tables. A blank figure is NULL, never zero. Linking a person to one of our players lives in wiki_link.
+CREATE TABLE wiki_person (
+  title TEXT PRIMARY KEY, page_title TEXT NOT NULL, revision_id INTEGER NOT NULL, dob TEXT, birth_place TEXT, height_cm INTEGER,
+  position TEXT, snapshot_id TEXT NOT NULL REFERENCES snapshot(id), fetched_at TEXT NOT NULL
+);
+CREATE TABLE wiki_career (
+  title TEXT NOT NULL REFERENCES wiki_person(title), kind TEXT NOT NULL CHECK (kind IN ('senior','youth','national')), row_no INTEGER NOT NULL,
+  years TEXT NOT NULL, club TEXT NOT NULL, club_title TEXT, loan INTEGER NOT NULL, apps INTEGER, goals INTEGER, apps_raw TEXT NOT NULL, goals_raw TEXT NOT NULL,
+  PRIMARY KEY (title, kind, row_no)
+);
+-- How a wiki_link was earned: 'name' (club, identical full name, agreeing nationality or position) or 'dob' (same club, same
+-- date of birth on the article and in the squad list, exactly one such player). dob_confirmed = the dates agree. dob_note is set when they differ by what looks like a typo (see replay._near_dob) and the link was kept anyway.
+CREATE TABLE wiki_link_basis (season_id INTEGER NOT NULL, team_id INTEGER NOT NULL, row_no INTEGER NOT NULL, basis TEXT NOT NULL,
+  dob_confirmed INTEGER NOT NULL, dob_note TEXT, PRIMARY KEY (season_id, team_id, row_no));
+
+-- openfootball/england (CC0): second-tier results since 2000-01. A club is keyed by its name in those files; team_id is set only
+-- through the reviewed data/openfootball_clubs.csv (a football-data.org club), otherwise NULL (a club we hold no other data for).
+CREATE TABLE hist_club (key TEXT PRIMARY KEY, name TEXT NOT NULL, team_id INTEGER REFERENCES team(id));
+-- Grain: one played match. Unplayed fixtures are not stored. A missing half-time or 90 minute score is NULL, never 0.
+CREATE TABLE hist_match (
+  id INTEGER PRIMARY KEY, season TEXT NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('league','playoff')), stage TEXT NOT NULL, matchday INTEGER,
+  date TEXT NOT NULL, time TEXT, home_key TEXT NOT NULL REFERENCES hist_club(key), away_key TEXT NOT NULL REFERENCES hist_club(key),
+  hg INTEGER NOT NULL, ag INTEGER NOT NULL, ht_h INTEGER, ht_a INTEGER, pen_h INTEGER, pen_a INTEGER, aet INTEGER NOT NULL,
+  reg_h INTEGER, reg_a INTEGER, awarded INTEGER NOT NULL, snapshot_id TEXT NOT NULL REFERENCES snapshot(id)
+);
+-- One row per season file read, with how it compared to football-data.org where both hold the season.
+CREATE TABLE hist_season (season TEXT PRIMARY KEY, path TEXT NOT NULL, league_matches INTEGER NOT NULL, playoff_matches INTEGER NOT NULL,
+  clubs INTEGER NOT NULL, compared INTEGER NOT NULL, disagree INTEGER NOT NULL, snapshot_id TEXT NOT NULL REFERENCES snapshot(id), fetched_at TEXT NOT NULL);
+CREATE TABLE hist_issue (kind TEXT NOT NULL, subject TEXT NOT NULL, detail TEXT NOT NULL);
+
+-- Points the final Wikipedia table shows beyond what the results give (deductions). Derived in replay, never typed in; the evidence
+-- is the article revision the figure was read from.
+CREATE TABLE hist_adjustment (
+  season TEXT NOT NULL, club_key TEXT NOT NULL REFERENCES hist_club(key), points INTEGER NOT NULL, calculated INTEGER NOT NULL, listed INTEGER NOT NULL,
+  title TEXT NOT NULL, revision_id INTEGER NOT NULL, snapshot_id TEXT NOT NULL REFERENCES snapshot(id), PRIMARY KEY (season, club_key)
+);
+
+-- What is in this database and where each part came from: one row per source dataset, with the live row count of its main table.
+CREATE TABLE dataset (
+  id TEXT PRIMARY KEY, source TEXT NOT NULL, title TEXT NOT NULL, licence TEXT NOT NULL, url TEXT NOT NULL,
+  main_table TEXT NOT NULL, grain TEXT NOT NULL, rows INTEGER NOT NULL
+);

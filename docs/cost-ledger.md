@@ -1,6 +1,6 @@
 # Cost ledger
 
-Operating cost to date: **$0**. No payment method entered anywhere. Last verified 2026-10-10.
+Operating cost to date: **$0**. No payment method entered anywhere. Last verified 2026-10-11 (M7 additions below).
 
 Signup for football-data.org and API-Football was done by the owner before this run; whether either asked for a card is not observed. Both keys are free plans that hard-stop (429).
 
@@ -28,6 +28,16 @@ Signup for football-data.org and API-Football was done by the owner before this 
 
 Retention: snapshots stay git-ignored and live in the Actions cache. Replay uses only the newest readable copy of each Wikipedia page for the current season, so older Wikipedia snapshots can be deleted without changing the database. Ceiling for the snapshot folder: 200 MB, about two years at this rate. Revisit then.
 
+## M7 additions (2026-10-11), all free, no account, no key
+
+| Service | Verified limit | Usage | Enforcement | Verified |
+|---|---|---|---|---|
+| Wikipedia player articles and final tables (`/wiki/<title>`) | Same as above: no hard read limit, serial requests, `robots.txt` allows `/wiki/<article>` | Measured: 557 player articles (about 20 MB compressed, once) then at most 150 per run and each article at most every 30 days; 26 final tables once a year | `MAX_PLAYER_REQUESTS_PER_RUN = 150`, 30 for tables, `MIN_INTERVAL_S = 2`, per-title age and failure waits (404 waits 30 days), `ATLAS_WIKI=0` | 2026-10-11 |
+| openfootball/england on `raw.githubusercontent.com` (CC0 1.0) | Anonymous raw file reads; no key. GitHub rate-limits anonymous raw reads far above this use | Measured: 27 small files, 212 KB compressed in total, one request each; the latest two seasons daily, older every 90 days | `MAX_REQUESTS_PER_RUN = 40`, `MIN_INTERVAL_S = 1`, `ATLAS_OPENFOOTBALL=0`, repository variable `OPENFOOTBALL_ENABLED=false` | 2026-10-11 |
+| Actions minutes for the extra fetching | Free for a public repository (see above) | Estimate: the first run on a cold cache adds about 10 minutes (player articles), then about 1 to 2 minutes a run; well inside the free allowance | Job `timeout-minutes` raised from 15 to 30 | 2026-10-11 (estimate, not measured on a runner) |
+
+Retention for the new data: replay reads only the newest readable copy of each player article, final table and season file, so older copies of those can be deleted without changing the database (keep the newest two per title in case the newest is unreadable). Measured today: `data/snapshots` is 26 MB (25 MB Wikipedia, 212 KB openfootball). The player articles add about 20 MB per monthly refresh, so prune old copies before the folder passes the 200 MB ceiling (about ten months).
+
 ## Candidates not in use
 
 | Service | Verified limit | Usage | Enforcement | Verified |
@@ -41,4 +51,5 @@ Retention: snapshots stay git-ignored and live in the Actions cache. Replay uses
 | TheSportsDB premium ($9 per month) | Paid. Free key kept only as evidence, and it truncates data (15 events, 5 table rows) |
 | football-data.org paid tiers (from EUR 29 per month) | Paid; lineups and scorers are in these tiers only |
 | API-Football paid plans | Paid |
+| dcaribou/transfermarkt-datasets | Free, and the repository is labelled CC0, but the data is scraped from Transfermarkt and that site's terms were not read. A scraper's licence is not the data owner's permission. Pending an owner decision (STATUS.md, Blockers 10) |
 | Football-Data.co.uk | Free, but terms restrict use to private individuals, no automated or commercial use. Not a cost issue, a permission issue |

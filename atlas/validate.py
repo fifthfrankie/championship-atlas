@@ -50,7 +50,9 @@ def run(path, league_teams=LEAGUE_TEAMS):
                     errors.append(f"{label}: team {tid} provider shows more than our matches support {tuple(s[:6])} vs {ours}")
                 continue
             comparable += 1
-            if r.points != s[6]:
+            # A deduction read from a final Wikipedia table may be missing from the provider's table; either way is accepted, nothing else.
+            wiki_adj = db.execute("SELECT COALESCE(SUM(points), 0) FROM standings_adjustment WHERE season_id=? AND team_id=? AND origin='wikipedia'", (sid, tid)).fetchone()[0]
+            if r.points != s[6] and not (wiki_adj and r.points - wiki_adj == s[6]):
                 errors.append(f"{label}: team {tid} points {r.points} vs provider {s[6]} with identical results (missing adjustment?)")
         complete = db.execute(f"""SELECT COUNT(*) FROM match m JOIN stage st ON st.id=m.stage_id
                                   WHERE st.season_id=? AND st.kind='league' AND m.status NOT IN ({_IN})""", (sid, *COMPLETED)).fetchone()[0] == 0

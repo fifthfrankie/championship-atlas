@@ -23,6 +23,10 @@ const wikiClub = data.teams.find((t: { id: number }) => t.id === wikiPage.team).
 const wikiRow = data.wiki.clubs[String(wikiPage.team)].find((r: { player: string | null }) => r.player)
 const doneMatch = data.matches.find((m: { status: string }) => m.status === "FINISHED").url_id as string
 const pastSeason = data.seasons[0].label as string
+const have = new Set([data.season, ...data.seasons.map((x: { label: string }) => x.label)])
+const oldSeason = data.history.seasons.filter((h: { label: string }) => !have.has(h.label)).at(-1).label as string      // the oldest results-only season
+const careerPlayer = data.players.find((p: { career?: unknown }) => p.career)
+const careerId = careerPlayer.url_id as string
 const playerSurname = (data.players.find((p: { scorer: unknown }) => p.scorer) ?? data.players[0]).name.split(" ").at(-1).slice(0, 4).toLowerCase() as string
 
 const server = spawn("python3", ["-m", "http.server", String(PORT), "--directory", join(root, "build/site")], { stdio: "ignore" })
@@ -107,6 +111,17 @@ async function journey(p: Page, tag: string) {
   ok(/Appearances and goals, as of/.test(await p.locator("main").innerText()), `${tag}: linked player page shows appearances`)
   await noOverflow(p, `${tag} linked player`)
   await p.screenshot({ path: join(shots, `${tag}-player-appearances.png`), fullPage: false })
+  await p.goto(url(`player/${careerId}/`))
+  ok(/Senior career/.test(await p.locator("main").innerText()), `${tag}: a linked player page shows a career table`)
+  ok(/Wikipedia contributors, licensed/.test(await p.locator("main").innerText()), `${tag}: career carries the Wikipedia attribution`)
+  await noOverflow(p, `${tag} player career`)
+  await p.locator("main h2", { hasText: "Career" }).scrollIntoViewIfNeeded()
+  await p.screenshot({ path: join(shots, `${tag}-player-career.png`), fullPage: false })
+  await p.goto(url(`season/${oldSeason}/`))
+  ok((await p.locator("tbody tr").count()) >= 24, `${tag}: results-only season ${oldSeason} lists 24 clubs`)
+  ok(/Results only/.test(await p.locator("main").innerText()), `${tag}: results-only season says so`)
+  await noOverflow(p, `${tag} results-only season`)
+  await p.screenshot({ path: join(shots, `${tag}-season-history.png`), fullPage: false })
   await p.goto(url(`team/${A}/`))
   ok((await p.locator("figure.chart svg").count()) === 1, `${tag}: points chart rendered`)
   await noOverflow(p, `${tag} team with chart`)
@@ -130,7 +145,7 @@ async function journey(p: Page, tag: string) {
 }
 
 async function quality(browser: Browser) {
-  const pages = ["", `team/${A}/`, `team/${wikiClub}/`, `player/${wikiRow.player}/`, `match/${doneMatch}/`, "players/", `compare/${pair}/`, `season/${pastSeason}/`, "matches/", "status/"]
+  const pages = ["", `team/${A}/`, `team/${wikiClub}/`, `player/${wikiRow.player}/`, `match/${doneMatch}/`, "players/", `compare/${pair}/`, `season/${pastSeason}/`, `season/${oldSeason}/`, `player/${careerId}/`, "matches/", "status/"]
   for (const scheme of ["light", "dark"] as const) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, colorScheme: scheme })
     const p = await ctx.newPage()

@@ -1,9 +1,9 @@
 """python3 -m atlas.cli ingest | backfill | replay | export"""
-import json, sys, time
+import json, re, sys, time
 from pathlib import Path
 import os
 from datetime import datetime, timezone
-from . import fdorg, replay, snapshots, wiki
+from . import fdorg, openfootball, replay, snapshots, wiki
 
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / "build" / "atlas.db"
@@ -62,6 +62,18 @@ def ingest(fetch=fdorg.fetch, sleep=time.sleep):
         wiki_ingest(sleep=sleep)   # supplementary: its failures are shown on the status page and never fail the core ingest
     except Exception as ex:        # a changed layout, a network surprise: report it, keep the football-data.org work
         print(f"wikipedia: refresh failed, football-data.org data is unaffected ({type(ex).__name__}: {ex})")
+    try:
+        openfootball_ingest(sleep=sleep)
+    except Exception as ex:
+        print(f"openfootball: refresh failed, other data is unaffected ({type(ex).__name__}: {ex})")
+    try:
+        wiki_tables_ingest(sleep=sleep)
+    except Exception as ex:
+        print(f"wikipedia tables: refresh failed, other data is unaffected ({type(ex).__name__}: {ex})")
+    try:
+        wiki_players_ingest(sleep=sleep)
+    except Exception as ex:
+        print(f"wikipedia players: refresh failed, other data is unaffected ({type(ex).__name__}: {ex})")
     return 1 if run.failed or rc not in (0,) else 0
 
 
@@ -131,6 +143,105 @@ def wiki_ingest(fetch=wiki.fetch, sleep=time.sleep, now=None, env=None, force=Fa
     return 1 if run.failed else 0
 
 
+def openfootball_ingest(fetch=openfootball.fetch, sleep=time.sleep, now=None, env=None, last_year=None):
+    """CC0 second-tier results since 2000-01, one small file per season. Finished seasons are re-read after 90 days (upstream
+    corrections are rare), the latest two after a day. One run is capped. Off with ATLAS_OPENFOOTBALL=0."""
+    if (env if env is not None else os.environ).get("ATLAS_OPENFOOTBALL", "1") == "0":
+        print("openfootball: switched off (ATLAS_OPENFOOTBALL=0)")
+        return 0
+    now = now or datetime.now(timezone.utc)
+    last_year = last_year or current_season() or now.year
+    good = {}
+    for e in snapshots.entries():
+        if e["source"] == openfootball.SOURCE and e["endpoint"] == openfootball.ENDPOINT and e["http_status"] == 200:
+            good[e["params"]] = e
+    run = _Run(fetch, sleep, source=openfootball.SOURCE, cap=openfootball.MAX_REQUESTS_PER_RUN, spacing=openfootball.MIN_INTERVAL_S, token="",
+               clock=lambda: now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    for y in range(last_year, openfootball.FIRST_SEASON - 1, -1):
+        path = openfootball.season_path(y)
+        max_age = 1 if y >= last_year - 1 else 90
+        if path in good and (now - _ts(good[path]["fetched_at"])).days < max_age:
+            continue
+        if run.get(path, {}, openfootball.ENDPOINT) is None:
+            break
+    print(f"openfootball: {run.sent} requests sent")
+    return 1 if run.failed else 0
+
+
+def wiki_tables_ingest(fetch=wiki.fetch, sleep=time.sleep, now=None, env=None, last_year=None):
+    """Final league table of each finished season from its Wikipedia article (ordinary /wiki/ page). A finished season never changes
+    much, so a good copy is kept for a year. Needed to tell a points deduction from a result. Off with ATLAS_WIKI=0."""
+    if (env if env is not None else os.environ).get("ATLAS_WIKI", "1") == "0":
+        print("wikipedia tables: switched off (ATLAS_WIKI=0)")
+        return 0
+    now = now or datetime.now(timezone.utc)
+    last_year = last_year or current_season() or now.year
+    good = {e["params"]: e for e in snapshots.entries() if e["source"] == wiki.SOURCE and e["endpoint"] == wiki.TABLE_ENDPOINT and e["http_status"] == 200}
+    run = _Run(fetch, sleep, source=wiki.SOURCE, cap=30, spacing=wiki.MIN_INTERVAL_S, token="", clock=lambda: now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    for y in range(last_year - 1, openfootball.FIRST_SEASON - 1, -1):      # the current season is not finished
+        t = wiki.league_page_title(y)
+        if t in good and (now - _ts(good[t]["fetched_at"])).days < 365:
+            continue
+        if run.get(t, {}, wiki.TABLE_ENDPOINT) is None:
+            break
+    print(f"wikipedia tables: {run.sent} requests sent")
+    return 1 if run.failed else 0
+
+
+def player_titles():
+    """Article titles linked from the newest copy of each current-season club table, sorted. Read from snapshots only."""
+    latest = {}
+    for e in snapshots.entries():
+        if e["source"] == wiki.SOURCE and e["endpoint"] == "wiki-club" and e["http_status"] == 200:
+            latest[e["params"]] = e
+    year = max((int(m.group(1)) for t in latest for m in [re.match(r"^(\d{4})\u2013", t)] if m), default=None)
+    titles = set()
+    for t, e in latest.items():
+        if year is None or not t.startswith(f"{year}\u2013"):
+            continue
+        try:
+            titles |= {r["player_title"] for r in wiki.parse_club_season(snapshots.read(e))["rows"] if r["player_title"]}
+        except ValueError:
+            pass                      # an unreadable club page has no titles; replay reports it
+    return sorted(titles)
+
+
+def wiki_players_ingest(fetch=wiki.fetch, sleep=time.sleep, now=None, env=None, titles=None):
+    """Fetch each listed player's own article (ordinary /wiki/ page) for the career table and date of birth. A good copy under
+    PLAYER_MAX_AGE_DAYS old is skipped, a title that failed is skipped for 6 hours (30 days for a 404), and one run is capped."""
+    if (env if env is not None else os.environ).get("ATLAS_WIKI", "1") == "0":
+        print("wikipedia players: switched off (ATLAS_WIKI=0)")
+        return 0
+    now = now or datetime.now(timezone.utc)
+    last, good = {}, {}
+    for e in snapshots.entries():                         # manifest order: the final entry for a title is its latest attempt
+        if e["source"] == wiki.SOURCE and e["endpoint"] == wiki.PLAYER_ENDPOINT:
+            last[e["params"]] = e
+            if e["http_status"] == 200:
+                good[e["params"]] = e
+    todo = []
+    for t in (titles if titles is not None else player_titles()):
+        if t in good and (now - _ts(good[t]["fetched_at"])).days < wiki.PLAYER_MAX_AGE_DAYS:
+            continue
+        if t in last and last[t]["http_status"] != 200:
+            # An article that does not exist (a red link in the club table) will not appear overnight: look again in 30 days.
+            # Any other failure is retried after 6 hours.
+            wait = 30 * 86400 if last[t]["http_status"] == 404 else 6 * 3600
+            if (now - _ts(last[t]["fetched_at"])).total_seconds() < wait:
+                continue
+        todo.append(t)
+    if not todo:
+        print("wikipedia players: every article is fresh")
+        return 0
+    run = _Run(fetch, sleep, source=wiki.SOURCE, cap=wiki.MAX_PLAYER_REQUESTS_PER_RUN, spacing=wiki.MIN_INTERVAL_S, token="",
+               clock=lambda: now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    for t in todo:
+        if run.get(t, {}, wiki.PLAYER_ENDPOINT) is None:
+            break
+    print(f"wikipedia players: {run.sent} requests sent, {max(0, len(todo) - run.sent)} left for the next run")
+    return 1 if run.failed else 0
+
+
 def current_season():
     """Season year the provider calls current, read from the newest saved matches snapshot."""
     best = None
@@ -171,6 +282,10 @@ def main(argv):
         return ingest()
     if argv[:1] == ["backfill"]:
         return backfill()
+    if argv[:1] == ["history"]:
+        return openfootball_ingest() | wiki_tables_ingest()
+    if argv[:1] == ["players"]:
+        return wiki_players_ingest()
     if argv[:1] == ["replay"]:
         DB.parent.mkdir(exist_ok=True)
         replay.build(DB)

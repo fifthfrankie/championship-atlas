@@ -2,7 +2,7 @@ import type { Match, Player, Team, Window } from "./types.js"
 import { Ctx, dayLong, esc, isDone, isLive, isPending, kickoffClock, kickoffDay, kickoffFullFor, kickoffWhen, num, scoreText, shortId, signed, stamp, statusLabel } from "./util.js"
 import { ATTRIBUTION, evidence, notice, page } from "./layout.js"
 import { pointsChart } from "./charts.js"
-import type { Row, SeasonSummary, WikiPage, WikiRow } from "./types.js"
+import type { CareerRow, HistSeason, Row, SeasonSummary, WikiPage, WikiRow } from "./types.js"
 
 const matchSnaps = (c: Ctx) => c.d.snapshots.filter((s) => s.endpoint === "matches").map((s) => s.id)
 const lastOf = (c: Ctx, ep: string) => c.d.snapshots.filter((s) => s.endpoint === ep).at(-1)
@@ -237,8 +237,26 @@ ${s ? `<dl class="kpis big"><div><dt>Top scorer rank</dt><dd>${s.rank}</dd></div
 ${evidence(c, { what: "From the provider's top 10 scorers list. A blank means the provider did not supply it, not zero.", snapshotIds: [s.snapshot], fetched: s.fetched_at })}`
  : notice("info", `${esc(p.name)} is not in the provider's top 10 scorers. The top 10 list is the only goals data from that provider; appearance figures, where we have them, are shown above. A missing figure means not available, not zero.`)}
 </section>
-<section><h2>Match by match and career history</h2>${notice("info", `${esc(d.coverage.history)} Minutes, match-by-match appearances and earlier seasons are not available from the current free sources.`)}</section>`
+<section><h2>Career</h2>${playerCareer(c, p)}</section>`
   return page(c, { title: p.name, path: `player/${p.url_id}/`, nav: "players", body })
+}
+
+function careerTable(c: Ctx, p: Player, rows: CareerRow[], label: string): string {
+  if (!rows.length) return ""
+  const n = (x: number | null) => (x === null ? '<span aria-hidden="true">-</span><span class="sr">not given</span>' : String(x))
+  return `<h3>${esc(label)}</h3><div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(p.name)} ${esc(label.toLowerCase())}</caption><thead><tr><th scope="col" class="left">Years</th><th scope="col" class="left">Club</th><th scope="col">Apps</th><th scope="col">Goals</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="left">${esc(r.years)}</td><th scope="row" class="left">${esc(r.club)}${r.loan ? " <small class=\"muted\">(loan)</small>" : ""}</th><td>${n(r.apps)}</td><td>${n(r.goals)}</td></tr>`).join("")}</tbody></table></div>`
+}
+
+function playerCareer(c: Ctx, p: Player): string {
+  const k = p.career
+  if (!k) return notice("info", `No career history for ${esc(p.name)}. It comes from the player's own Wikipedia article, which is only used once the player is matched to the squad list safely; this player has no such article or no safe match. Nothing is estimated.`)
+  const w = c.d.wiki
+  const facts = [k.birth_place ? `<dt>Born in</dt><dd>${esc(k.birth_place)}</dd>` : "", k.height_cm ? `<dt>Height</dt><dd>${k.height_cm} cm</dd>` : ""].join("")
+  return `${facts ? `<dl class="facts">${facts}</dl>` : ""}
+${careerTable(c, p, k.senior, "Senior career")}${careerTable(c, p, k.youth, "Youth career")}${careerTable(c, p, k.national, "International career")}
+${notice("info", "Appearances and goals are club league figures as the editors recorded them, for the years shown, and are not always updated for the current season. A dash means the editors left it blank, which is not a zero.")}
+<p class="muted">Career table adapted from the Wikipedia article <a href="${esc(k.permalink)}" rel="noopener">${esc(k.page)}</a> (revision ${k.revision}) by Wikipedia contributors, licensed <a href="${esc(w.licence_url)}" rel="noopener">${esc(w.licence)}</a>. Matched to this player ${k.dob_confirmed ? "by club and name, and the date of birth agrees" : k.dob_note ? `by club and name; the dates of birth differ slightly (${esc(k.dob_note)}), which looks like a typing error in one source` : k.basis === "dob" ? "by club and date of birth" : "by club and name; the article gives no full date of birth to confirm it"}.</p>
+${evidence(c, { what: "The infobox career table of the player's Wikipedia article, matched to the squad list.", calc: "Matched only when the player is listed on the club's Wikipedia table and the article's date of birth does not disagree with the squad list.", snapshotIds: [k.snapshot], fetched: k.fetched_at })}`
 }
 
 export function statusPage(c: Ctx): string {
@@ -266,8 +284,15 @@ ${d.validation.errors.length ? notice("warn", d.validation.errors.map(esc).join(
 <p>League appearances and goals come from each club's own Wikipedia season page (licensed ${esc(d.wiki.licence)}), read once a week from the ordinary article page, never the API. Every figure is checked against the match results before it is shown.</p>
 <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table><caption class="sr">Wikipedia table status by club</caption><thead><tr><th scope="col" class="left">Club</th><th scope="col" class="left">Status</th><th scope="col" class="left">As of</th><th scope="col">Players listed</th><th scope="col">Matched</th><th scope="col" class="left">Fetched</th></tr></thead><tbody>${[...d.wiki.pages].sort((a, b) => c.name(a.team).localeCompare(c.name(b.team))).map((w) => `<tr><th scope="row">${esc(c.name(w.team))}</th><td class="left">${w.status === "ok" ? "Shown" : `Not shown: ${esc(w.reason ?? "")}`}${w.note ? ` (${esc(w.note)})` : ""}</td><td class="left">${w.as_of ? dayLong(w.as_of) : "unknown"}</td><td>${w.status === "ok" ? w.rows : ""}</td><td>${w.status === "ok" ? w.linked : ""}</td><td class="left">${stamp(w.fetched_at)}</td></tr>`).join("")}</tbody></table></div>
 <p class="muted">Matched means the Wikipedia row was linked to a player in the squad list by club, identical full name, and agreeing nationality or position. Unmatched rows are still shown on the club page. ${d.wiki.pages.filter((w) => w.status === "ok").reduce((n, w) => n + w.rows - w.linked, 0)} listed players are unmatched.</p>
-${d.wiki.issues.length ? notice("warn", d.wiki.issues.map((i) => `${esc(i.kind)}: ${esc(i.subject)}. ${esc(i.detail)}`).join("<br>")) : ""}
+${d.wiki.issues.filter((i) => !i.kind.startsWith("link_") && !i.kind.startsWith("player_")).length ? notice("warn", d.wiki.issues.filter((i) => !i.kind.startsWith("link_") && !i.kind.startsWith("player_")).map((i) => `${esc(i.kind)}: ${esc(i.subject)}. ${esc(i.detail)}`).join("<br>")) : ""}
 <p class="muted">Text from Wikipedia is available under <a href="${esc(d.wiki.licence_url)}" rel="noopener">${esc(d.wiki.licence)}</a>. Figures adapted from it carry that licence and the attribution shown beside them.</p></section>
+<section><h2>What the database holds</h2>
+<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">Datasets in the database, with licence and row count</caption><thead><tr><th scope="col" class="left">Dataset</th><th scope="col" class="left">Source</th><th scope="col" class="left">One row is</th><th scope="col" class="left">Licence</th><th scope="col">Rows</th></tr></thead><tbody>${d.datasets.map((x) => `<tr><th scope="row" class="left"><a href="${esc(x.url)}" rel="noopener">${esc(x.title)}</a></th><td class="left">${esc(x.source)}</td><td class="left">${esc(x.grain)}</td><td class="left">${esc(x.licence)}</td><td>${x.rows}</td></tr>`).join("")}</tbody></table></div>
+<p class="muted">Everything above is rebuilt from the saved copies by one command, so any figure can be traced back to a source file.</p></section>
+<section><h2>Longer history and player careers</h2>
+<p>${d.history.seasons.length} second-tier seasons of results since ${esc(d.history.seasons.at(-1)?.label ?? "")} come from <a href="${esc(d.history.source.url)}" rel="noopener">${esc(d.history.source.name)}</a> (${esc(d.history.source.licence)}). Where football-data.org holds the same season, every result is compared and ${d.history.seasons.reduce((n, h) => n + h.disagree, 0)} of ${d.history.seasons.reduce((n, h) => n + h.compared, 0)} compared results disagree. Points deductions are read from each finished season's final Wikipedia table and matched to clubs by their results, never by name.</p>
+<p>${d.people.linked} players have a career table from their own Wikipedia article (${d.people.count} articles read). A link is made only by club and name, or club and date of birth. It is refused when the dates of birth disagree. ${d.wiki.issues.filter((i) => i.kind === "link_dob_differs").length} links were kept although the dates of birth differ by what looks like a typing error (a day or month slip, or a year out); each says so on the player page.</p>
+${[...d.history.issues, ...d.wiki.issues.filter((i) => i.kind.startsWith("link_refused") || i.kind.startsWith("player_"))].length ? notice("warn", [...d.history.issues, ...d.wiki.issues.filter((i) => i.kind.startsWith("link_refused") || i.kind.startsWith("player_"))].map((i) => `${esc(i.kind)}: ${esc(i.subject)}. ${esc(i.detail)}`).join("<br>")) : ""}</section>
 <section><h2>Sources</h2><p><strong>${ATTRIBUTION}.</strong> Match, table, squad and scorer data: ${esc(d.source)}. This is an independent fan project and is not affiliated with the EFL or any club.</p></section>
 <section><h2>Measures explained</h2><dl class="facts">${Object.entries(d.calc).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>
 <section><h2>Saved copies used in this build</h2><p class="muted">${d.snapshots.length} saved copies.</p><ul class="plain mono">${d.snapshots.map((s) => `<li><code>${shortId(s.id)}</code> ${esc(s.endpoint)} ${stamp(s.fetched_at)}</li>`).join("")}</ul></section>`
@@ -293,8 +318,19 @@ ${chart}
 ${curAdj ? notice("info", `The chart plots points won in matches. The table total also includes a points adjustment of ${signed(curAdj)} (see the overview), so the chart line ends ${Math.abs(curAdj)} ${curAdj < 0 ? "higher" : "lower"} than the table.`) : ""}
 ${hist.length ? `<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(t.name)} league finish by season</caption><thead><tr><th scope="col" class="left">Season</th><th scope="col">Position</th><th scope="col">Pts</th><th scope="col">P</th><th scope="col">GD</th></tr></thead><tbody>${rows}</tbody></table></div>
 <p class="muted">Earlier seasons are complete final tables. ${esc(cur)} is the table so far, so its points are not comparable with a full season.</p>` : notice("info", "No earlier Championship seasons are stored for this club.")}
+${longRecord(c, t)}
 ${evidence(c, { what: "League results for each stored season, summed per club.", calc: d.calc.points, snapshotIds: [...matchSnaps(c), ...d.seasons.flatMap((x) => x.snapshots)] })}
 <details class="evidence"><summary>Compare ${esc(c.name(t.id))} with another club</summary><ul class="cols">${others.map((o) => `<li><a href="${c.href(`compare/${pairSlug(t, o)}/`)}">${esc(o.short_name ?? o.name)}</a></li>`).join("")}</ul></details></section>`
+}
+
+function longRecord(c: Ctx, t: Team): string {
+  const have = new Set(c.d.per_team[String(t.id)]!.history.map((h) => h.season))
+  const rec = Object.values(c.d.history.clubs).find((x) => x.team === t.id)
+  const older = (rec?.seasons ?? []).filter((x) => !have.has(x.season))
+  if (!older.length) return ""
+  return `<h3>Earlier seasons since 2000-01</h3>
+<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(t.name)} league finish in earlier seasons, results only</caption><thead><tr><th scope="col" class="left">Season</th><th scope="col">Position</th><th scope="col">Pts</th><th scope="col">P</th></tr></thead><tbody>${older.map((x) => `<tr><th scope="row"><a href="${c.href(`season/${x.season}/`)}">${esc(x.season)}</a></th><td>${x.position}</td><td>${x.points}</td><td>${x.played}</td></tr>`).join("")}</tbody></table></div>
+<p class="muted">Only seasons in the second tier are listed. Results from ${esc(c.d.history.source.name)} (${esc(c.d.history.source.licence)}); a points deduction is applied only where the season's final Wikipedia table shows one.</p>`
 }
 
 export const pairSlug = (a: Team, b: Team) => (a.slug < b.slug ? `${a.slug}-v-${b.slug}` : `${b.slug}-v-${a.slug}`)
@@ -307,12 +343,45 @@ function tableHtml(c: Ctx, rows: Row[], caption: string): string {
 export function seasonsIndex(c: Ctx): string {
   const d = c.d
   const li = (label: string, note: string) => `<li><a class="card" href="${c.href(`season/${label}/`)}"><span><strong>${esc(label)}</strong><small>${note}</small></span></a></li>`
-  const items = [li(d.season, "Current season, table so far"), ...d.seasons.map((s) => li(s.label, s.complete ? (s.reconciled ? `Final table, champions ${esc(c.name(s.table[0]!.team))}` : "Complete, not checked against the provider table") : "Incomplete"))].join("")
-  return page(c, { title: "Seasons", path: "seasons/", nav: "seasons", body: `<h1>Seasons</h1><p>Full league results for each season the data source makes available for free. Older seasons are not available.</p><ul class="cards">${items}</ul>` })
+  const full = new Set([d.season, ...d.seasons.map((s) => s.label)])
+  const older = d.history.seasons.filter((h) => !full.has(h.label))
+  const items = [li(d.season, "Current season, table so far"), ...d.seasons.map((s) => li(s.label, s.complete ? (s.reconciled ? `Final table, champions ${esc(c.name(s.table[0]!.team))}` : "Complete, not checked against the provider table") : "Incomplete")),
+    ...older.map((h) => li(h.label, h.complete ? `Final table, champions ${esc(h.table[0]!.name)}` : "Incomplete"))].join("")
+  return page(c, { title: "Seasons", path: "seasons/", nav: "seasons", body: `<h1>Seasons</h1><p>Full league results for every season since ${esc(older.at(-1)?.label ?? d.seasons.at(-1)?.label ?? d.season)}. The last ${d.seasons.length} seasons come from the football-data.org feed and have match pages; earlier seasons are results-only, from <a href="${esc(d.history.source.url)}" rel="noopener">${esc(d.history.source.name)}</a> (${esc(d.history.source.licence)}).</p><ul class="cards">${items}</ul>` })
+}
+
+export function historyTable(c: Ctx, h: HistSeason): string {
+  const body = h.table.map((r) => {
+    const t = r.team === null ? undefined : c.teamById.get(r.team)
+    const name = t?.current ? `<a href="${c.href(`team/${t.slug}/`)}">${esc(r.name)}</a>` : esc(r.name)
+    return `<tr><td>${r.position}</td><th scope="row">${name}${r.adjustment ? ` <span class="adj" title="Points adjustment">${signed(r.adjustment)}</span>` : ""}${r.tied ? ' <abbr class="tie" title="Level on points, goal difference and goals scored. Head-to-head rules are not applied here.">=</abbr>' : ""}</th><td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.gf}</td><td>${r.ga}</td><td>${signed(r.gd)}</td><td><strong>${r.points}</strong></td></tr>`
+  }).join("")
+  return `<div class="scroll" tabindex="0" role="region" aria-label="Scrollable table"><table class="num"><caption class="sr">${esc(h.label)} league table</caption><thead><tr><th scope="col">#</th><th scope="col" class="left">Club</th><th scope="col">P</th><th scope="col">W</th><th scope="col">D</th><th scope="col">L</th><th scope="col">GF</th><th scope="col">GA</th><th scope="col">GD</th><th scope="col">Pts</th></tr></thead><tbody>${body}</tbody></table></div>`
+}
+
+function historyChecks(c: Ctx, h: HistSeason): string {
+  const adj = h.adjustments.map((a) => `<li><strong>${esc(a.club)}</strong> ${signed(a.points)} points. The final table in <a href="https://en.wikipedia.org/w/index.php?title=${esc(a.title.replace(/ /g, "_"))}&amp;oldid=${a.revision}" rel="noopener">${esc(a.title)}</a> (revision ${a.revision}) lists that many points fewer than the results give.</li>`).join("")
+  return `${adj ? `<div><h3>Points adjustments</h3><ul>${adj}</ul></div>` : ""}
+${h.compared ? (h.disagree ? notice("warn", `${h.disagree} of ${h.compared} results differ from the football-data.org feed. See the data status page.`) : notice("info", `All ${h.compared} results were compared with the football-data.org feed and agree.`)) : ""}
+${!h.complete ? notice("warn", `Only ${h.matches} league matches are in the file, so this is not a full season.`) : ""}`
+}
+
+function historySeasonPage(c: Ctx, h: HistSeason): string {
+  const d = c.d
+  const stage: Record<string, string> = { SEMIFINALS: "Semi-final", FINAL: "Final", FINALS: "Final", PLAYOFFS: "Play-off", FINALS_SEMIFINALS: "Semi-final", FINALS_FINAL: "Final" }
+  const po = h.playoff.length ? `<section><h2>Play-offs</h2><ul class="mlist">${h.playoff.map((m) => `<li class="mrow"><span class="when">${dayLong(m.date)}<br><small>${esc(stage[m.stage] ?? "Play-off")}</small></span><span class="teams"><span>${esc(m.home)}</span><span class="score">${m.hg} - ${m.ag}${m.aet ? " <small>after extra time</small>" : ""}${m.pen_h !== null ? ` <small>(${m.pen_h} - ${m.pen_a} on penalties)</small>` : ""}</span><span>${esc(m.away)}</span></span></li>`).join("")}</ul></section>` : ""
+  const body = `<nav class="crumb" aria-label="Breadcrumb"><a href="${c.href("seasons/")}">Seasons</a> / ${esc(h.label)}</nav><h1>${esc(d.competition)} ${esc(h.label)}</h1>
+${notice("info", `Results only: this season predates the football-data.org feed, so there are no match pages. The table is calculated from the results in <a href="${esc(d.history.source.url)}" rel="noopener">${esc(d.history.source.name)}</a> (${esc(d.history.source.licence)}).`)}
+${historyTable(c, h)}
+<p class="legend">${esc(d.calc.order!)} Clubs shown without a link are not in the league this season.</p>
+${historyChecks(c, h)}
+${evidence(c, { what: `${h.matches} league results for ${h.label} from ${h.path} in ${d.history.source.name}.`, calc: `${d.calc.points} ${d.calc.order} Points adjustments come only from the season's final Wikipedia table.`, snapshotIds: [h.snapshot], fetched: h.fetched_at })}${po}`
+  return page(c, { title: `${d.competition} ${h.label}`, path: `season/${h.label}/`, nav: "seasons", body })
 }
 
 export function seasonPage(c: Ctx, label: string): string {
   const d = c.d
+  if (label !== d.season && !d.seasons.some((x) => x.label === label)) return historySeasonPage(c, d.history.seasons.find((x) => x.label === label)!)
   const isCur = label === d.season
   const s: SeasonSummary | undefined = d.seasons.find((x) => x.label === label)
   const rows = isCur ? d.table : s!.table
@@ -325,6 +394,7 @@ ${notice("info", "Play-off scores are as the provider supplies them. Where a mat
 ${!isCur && s && !s.reconciled ? notice("warn", "No provider table is saved for this season, so this table has not been checked against the provider's final table. Treat it with caution.") : ""}
 ${isCur ? notice("info", `Season in progress. This is the <a href="${c.href("")}">live table</a>.`) : ""}
 ${tableHtml(c, rows, `${label} league table`)}
+${(() => { const h = d.history.seasons.find((x) => x.label === label); return h?.compared ? notice("info", `${h.disagree ? `${h.disagree} of ${h.compared}` : `All ${h.compared}`} league results ${h.disagree ? "differ from" : "agree with"} an independent copy from ${esc(d.history.source.name)} (${esc(d.history.source.licence)}).`) : "" })()}
 <p class="legend">${esc(d.calc.order!)} ${isCur ? "" : "Clubs shown without a link are not in the league this season."}</p>
 ${evidence(c, { what: `Completed league matches for ${label}.`, calc: `${d.calc.points} ${d.calc.order}`, snapshotIds: ids })}${poHtml}`
   return page(c, { title: `${d.competition} ${label}`, path: `season/${label}/`, nav: "seasons", body })

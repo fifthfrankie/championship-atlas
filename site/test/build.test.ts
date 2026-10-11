@@ -112,8 +112,9 @@ test("every built page carries noindex and the provider attribution, and a page 
 test("Wikipedia appearance tables: shown with as-of date, licence and unmatched labels; rejected clubs say why; unlisted players are not given zeros", async () => {
   const { Ctx } = await import("../src/util.ts")
   const P = await import("../src/pages.ts")
+  const L = await import("../src/layout.ts")
   const d = data()
-  const comps = [{ competition: "Championship", apps: 6, starts: 4, subs: 2, split: true, goals: 1, blank: false }, { competition: "FA Cup", apps: 3, starts: null, subs: null, split: false, goals: 0, blank: false }]
+  const comps =[{ competition: "Championship", apps: 6, starts: 4, subs: 2, split: true, goals: 1, blank: false }, { competition: "FA Cup", apps: 3, starts: null, subs: null, split: false, goals: 0, blank: false }]
   d.players[0]!.wiki = { team: 1, as_of: "2026-09-19", revision: 4242, permalink: "https://en.wikipedia.org/w/index.php?title=X&oldid=4242", title: "2026\u201327 Team AAA season", snapshot: "b".repeat(64), fetched_at: "2026-10-10T11:00:00Z", note: null, shirt: 9, loaned_in: false, comps, apps_total: 6, goals_total: 1 }
   d.wiki.pages = [
     { team: 1, title: "2026\u201327 Team AAA season", status: "ok", reason: null, note: null, as_of: "2026-09-19", revision: 4242, fetched_at: "2026-10-10T11:00:00Z", snapshot: "b".repeat(64), competitions: ["Championship", "FA Cup"], permalink: "https://en.wikipedia.org/w/index.php?title=X&oldid=4242", rows: 2, linked: 1 },
@@ -140,6 +141,10 @@ test("Wikipedia appearance tables: shown with as-of date, licence and unmatched 
   assert.match(linked, /Appearances and goals, as of 19 September 2026/); assert.match(linked, /CC BY-SA 4\.0/)
   assert.match(linked, /<td>6<\/td><td>4<\/td><td>2<\/td><td>1<\/td>/)         // apps, starts, subs, goals
   assert.match(linked, /<td>3<\/td><td>Not split<\/td><td>Not split<\/td><td>0<\/td>/)   // a single figure is not given a split
+  assert.match(L.page(c, { title: "t", path: "", body: "" }), /Appearance tables adapted from Wikipedia, licensed <a [^>]*>CC BY-SA 4\.0/)   // footer, site-wide
+  d.wiki.pages.forEach((w) => { w.status = "rejected" })
+  assert.doesNotMatch(L.page(c, { title: "t", path: "", body: "" }), /adapted from Wikipedia/)          // no tables shown, no licence claim
+  d.wiki.pages.forEach((w, i) => { w.status = i === 0 ? "ok" : "rejected" })
   const idx = P.playersIndex(c)
   assert.match(idx, /Not listed/)                                                 // a player with no table row is "not listed", never 0
   assert.match(idx, /Wikipedia contributors, licensed/)                           // attribution is visible on the index itself

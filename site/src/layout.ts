@@ -47,6 +47,7 @@ ${o.body}
     <p><strong>Match data last fetched:</strong> <time datetime="${d.data_as_of}">${stamp(d.data_as_of)}</time>. Site built ${stamp(d.built_at)}.
     <a href="${c.href("status/")}">Coverage, sources and checks</a></p>
     <p>${ATTRIBUTION}. Match, table and squad data fetched ${shortId(d.snapshots[d.snapshots.length - 1]?.id ?? "")}. Independent fan project, not affiliated with the EFL or any club.</p>
+    ${d.wiki.pages.some((w) => w.status === "ok") ? `<p>Appearance tables adapted from Wikipedia, licensed <a href="${d.wiki.licence_url}">${esc(d.wiki.licence)}</a>.</p>` : ""}
   </div>
 </footer>
 </body>
